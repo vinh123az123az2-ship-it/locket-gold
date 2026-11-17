@@ -1,30 +1,30 @@
-#!url=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold.sgmodule
+#!url=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold.sgmodule
 #!name=Locket Gold VIP - langtucamau
 #!desc=Mở khóa Locket Gold VIP + AI Filter + Photobooth. Hỗ trợ bởi langtucamau.
 #!author=langtucamau
 #!homepage=https://github.com/vinh123az123az2-ship-it/locket-gold
 #!tgchannel=https://github.com/vinh123az123az2-ship-it/locket-gold
-#!icon=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/assets/banner.png
+#!icon=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/assets/banner.png
 
 [Script]
 # === CORE: Mở khóa Gold VIP ===
-revenuecat = type=http-response, pattern=^https:\/\/api\.(revenuecat|rc-backup)\.com\/.+\/(receipts$|subscribers\/[^/]+$), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold/locketgold.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
+revenuecat = type=http-response, pattern=^https:\/\/api\.(revenuecat|rc-backup)\.com\/.+\/(receipts$|subscribers\/[^/]+$), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locketgold.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
 
 # === CORE: Xóa ETag cache ===
-deleteHeader = type=http-request, pattern=^https:\/\/api\.(revenuecat|rc-backup)\.com\/.+\/(receipts|subscribers), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold/deleteHeader.js?v=20261117_v2, timeout=60
+deleteHeader = type=http-request, pattern=^https:\/\/api\.(revenuecat|rc-backup)\.com\/.+\/(receipts|subscribers), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/deleteHeader.js?v=20261117_v2, timeout=60
 
 # === CORE: Firebase Remote Config unlock ===
-locket_rc = type=http-response, pattern=^https?:\/\/firebaseremoteconfig\.googleapis\.com\/v1\/projects\/[^\/]+\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold/locket_remote.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
+locket_rc = type=http-response, pattern=^https?:\/\/firebaseremoteconfig\.googleapis\.com\/v1\/projects\/[^\/]+\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_remote.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
 
 # === CORE: Badge Gold + Moment Unlocker ===
-locket_badge = type=http-request, pattern=^https:\/\/api\.locketcamera\.com\/changeProfileInfo, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold/locket_profile.js?v=20261117_v2, timeout=60
-locket_user = type=http-response, pattern=^https:\/\/api\.locketcamera\.com\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold/locket_profile.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
+locket_badge = type=http-request, pattern=^https:\/\/api\.locketcamera\.com\/changeProfileInfo, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_profile.js?v=20261117_v2, timeout=60
+locket_user = type=http-response, pattern=^https:\/\/api\.locketcamera\.com\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_profile.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
 
 # === AI FILTER: Redirect generateFilteredImage to Worker ===
-locket_ai_filter = type=http-request, pattern=^https:\/\/(api\.locketcamera\.com|us-central1-locket-4252a\.cloudfunctions\.net)\/.*(generateFilteredImage|generateAiImage), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold/locket_ai.js?v=20261117_v2, requires-body=true, timeout=60
+locket_ai_filter = type=http-request, pattern=^https:\/\/(api\.locketcamera\.com|us-central1-locket-4252a\.cloudfunctions\.net)\/.*(generateFilteredImage|generateAiImage), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_ai.js?v=20261117_v2, requires-body=true, timeout=60
 
 # === AI FILTER: Inject custom filters vào danh sách camera ===
-locket_inject_filters = type=http-response, pattern=^https:\/\/api\.locketcamera\.com\/.*(getFilters|getCameraEffects|getAiLooks|filters|effects|looks), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold/locket_inject_filters.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
+locket_inject_filters = type=http-response, pattern=^https:\/\/api\.locketcamera\.com\/.*(getFilters|getCameraEffects|getAiLooks|filters|effects|looks), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_inject_filters.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
 
 [MITM]
 hostname = %APPEND% api.revenuecat.com, api.rc-backup.com, firebaseremoteconfig.googleapis.com, api.locketcamera.com, cdn.locketcamera.com, us-central1-locket-4252a.cloudfunctions.net

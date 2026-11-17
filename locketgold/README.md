@@ -62,8 +62,8 @@ Mọi tính năng VIP của Locket Gold đều được mở khóa toàn diện 
 
 | Mục cài đặt | Thao tác 1-Click | Link chép thủ công |
 | :--- | :--- | :--- |
-| **Module Locket (.sgmodule)** | [⚡ Cài đặt Module](https://raw.githack.com/vinh123az123az2-ship-it/locket-gold/main/module.html) | `https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold.sgmodule` |
-| **Config Locket (.conf)** | [🚀 Thêm Config](https://raw.githack.com/vinh123az123az2-ship-it/locket-gold/main/conf.html) | `https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/locketgold.conf` |
+| **Module Locket (.sgmodule)** | [⚡ Cài đặt Module](https://raw.githack.com/vinh123az123az2-ship-it/locket-gold/main/module.html) | `https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold.sgmodule` |
+| **Config Locket (.conf)** | [🚀 Thêm Config](https://raw.githack.com/vinh123az123az2-ship-it/locket-gold/main/conf.html) | `https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold.conf` |
 | **Hồ sơ DNS (.mobileconfig)** | [🛡️ Tải Profile DNS](https://cdn.jsdelivr.net/gh/vinh123az123az2-ship-it/locket-gold@main/locketgold.mobileconfig) | `https://cdn.jsdelivr.net/gh/vinh123az123az2-ship-it/locket-gold@main/locketgold.mobileconfig` |
 
 ---
