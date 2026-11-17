@@ -107,9 +107,13 @@ function isAllowedImageUrl(u) {
   try {
     var h = new URL(u);
     if (h.protocol !== "https:") return false;
-    for (var i = 0; i < ALLOWED_IMG_HOSTS.length; i++) {
-      if (h.hostname === ALLOWED_IMG_HOSTS[i] || h.hostname.endsWith("." + ALLOWED_IMG_HOSTS[i])) return true;
+    var host = h.hostname;
+    var path = h.pathname || "";
+    // firebasestorage/storage: chỉ cho bucket Locket (chặn multi-tenant bypass)
+    if (host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com") {
+      return /\/locket[-_a-z0-9]*\//i.test(path) || /%2flocket/i.test(h.search || "");
     }
+    if (host === "locketcamera.com" || host.endsWith(".locketcamera.com")) return true;
   } catch (e) {}
   return false;
 }
