@@ -1,79 +1,59 @@
 /**
- * LOCKET GOLD VIP - NATIVE AI FILTER UNBLUR
+ * LOCKET GOLD VIP - AI FILTER PAYWALL KILLER (REQUEST MOCK)
  * Tác giả: langtucamau
  *
- * Chặn response generateFilteredImage của Locket. Server Locket đã render
- * ảnh AI nhưng gate bằng lỗi 402/403 + blur + cờ requires_gold. Script này
- * gỡ paywall → ảnh AI hiện ra, hết mờ.
+ * Chặn thẳng REQUEST generateFilteredImage, KHÔNG cho tới server Locket
+ * (server trả 402 vì JWT entitlement rỗng). Trả mock 200 với outputUrl =
+ * ảnh gốc từ request → app nhận kết quả hợp lệ, hết đòi Gold.
  *
- * Nhờ đó native AI filter (ai_anime, ai_ghibli, ai_cyberpunk, ai_y2k,
- * ai_polaroid, ai_claymation, ai_tiktok_trend...) chạy thật, không cần Worker.
+ * Nếu WORKER_URL được set, redirect sang Worker để AI transform thật.
  */
 
-if (typeof $response === "undefined") {
-  return $done({});
-}
+// ==================== CẤU HÌNH ====================
+// Để trống = chỉ gỡ paywall (ảnh gốc). Set Worker URL để AI transform thật.
+var WORKER_URL = "";
+// ==================================================
 
-var body = $response.body;
-var status = $response.status || $response.statusCode || 200;
+(function () {
+  if (typeof $request === "undefined") return $done({});
 
-if (status === 402 || status === 403 || status === 400) {
-  status = 200;
-}
+  var body = $request.body || "";
 
-try {
-  var obj = JSON.parse(body);
+  // Trích URL ảnh gốc từ request để làm outputUrl
+  var imgUrl = "";
+  var m = body.match(/https?:\/\/firebasestorage\.googleapis\.com\/[^"'\s\\]+/i) ||
+          body.match(/https?:\/\/[^"'\s\\]+\.(jpg|jpeg|png|webp)[^"'\s\\]*/i) ||
+          body.match(/https?:\/\/[^"'\s\\]*locket[^"'\s\\]*/i);
+  if (m) imgUrl = m[0].replace(/\\u0026/g, "&").replace(/\\\//g, "/").replace(/\\/g, "");
 
-  if (obj) {
-    delete obj.error;
-    delete obj.errors;
-
-    if (obj.result) {
-      delete obj.result.error;
-      delete obj.result.errors;
-      obj.result.is_locked = false;
-      obj.result.requires_gold = false;
-      obj.result.unlocked = true;
-      obj.result.is_gold = true;
-      obj.result.status = 200;
-    }
-
-    if (!obj.result) {
-      obj.result = { status: 200, is_gold: true, is_locked: false, requires_gold: false, unlocked: true };
-    }
-
-    // Đảm bảo outputUrl hợp lệ để app không báo "Không thể áp dụng bộ lọc"
-    var fallbackUrl = "";
-    if (typeof $request !== "undefined" && $request && $request.body) {
-      var m = $request.body.match(/https?:\/\/[^"'\s\\]+\.(jpg|jpeg|png|webp)[^"'\s\\]*/i) ||
-              $request.body.match(/https?:\/\/firebasestorage\.googleapis\.com\/[^"'\s\\]+/i) ||
-              $request.body.match(/https?:\/\/[^"'\s\\]*locket[^"'\s\\]*/i);
-      if (m) fallbackUrl = m[0].replace(/\\u0026/g, "&").replace(/\\/g, "");
-    }
-    if (!obj.result.outputUrl && fallbackUrl) {
-      obj.result.outputUrl = fallbackUrl;
-      obj.result.output_url = fallbackUrl;
-      obj.result.url = fallbackUrl;
-      obj.result.imageUrl = fallbackUrl;
-      obj.result.image_url = fallbackUrl;
-      if (obj.result.data) {
-        obj.result.data.outputUrl = fallbackUrl;
-        obj.result.data.output_url = fallbackUrl;
-        obj.result.data.url = fallbackUrl;
-        obj.result.data.imageUrl = fallbackUrl;
-        obj.result.data.image_url = fallbackUrl;
-      }
-    }
+  // Nếu có Worker → redirect request sang Worker xử lý AI thật
+  if (WORKER_URL) {
+    var headers = Object.assign({}, $request.headers || {});
+    headers["Host"] = WORKER_URL.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    return $done({ url: WORKER_URL + "/generateFilteredImage", headers: headers });
   }
 
-  body = JSON.stringify(obj);
-} catch (e) {}
+  // Không có Worker → mock 200 với ảnh gốc (gỡ paywall, ảnh chưa đổi style)
+  var result = {
+    status: 200,
+    is_gold: true,
+    is_locked: false,
+    requires_gold: false,
+    unlocked: true
+  };
+  if (imgUrl) {
+    result.outputUrl = imgUrl;
+    result.output_url = imgUrl;
+    result.url = imgUrl;
+    result.imageUrl = imgUrl;
+    result.image_url = imgUrl;
+  }
 
-var headers = Object.assign({}, ($response && $response.headers) || {});
-delete headers["Content-Encoding"];
-delete headers["content-encoding"];
-delete headers["Content-Length"];
-delete headers["content-length"];
-headers["content-type"] = "application/json; charset=utf-8";
-
-$done({ status: status, headers: headers, body: body });
+  $done({
+    response: {
+      status: 200,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ result: result, data: result, status: 200 })
+    }
+  });
+})();
