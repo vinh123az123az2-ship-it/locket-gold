@@ -30,6 +30,15 @@ function injectBadge(target) {
     target.is_gold = true;
     target.show_badge = true;
     target.has_gold = true;
+    // Cấp quyền dùng AI filter (app check mấy cờ này trên user object)
+    target.can_use_filters = true;
+    target.can_use_gold_features = true;
+    target.can_generate_filtered_image = true;
+    target.can_create_filtered_image = true;
+    target.has_ai_access = true;
+    target.filter_access = true;
+    target.ai_filter_access = true;
+    target.is_subscriber = true;
   }
   for (let key in target) {
     if (Object.prototype.hasOwnProperty.call(target, key) && typeof target[key] === 'object' && target[key] !== null) {
