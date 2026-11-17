@@ -83,9 +83,13 @@ export default {
 
 function verifyAuth(request, env) {
   var secret = env.WORKER_SECRET;
-  if (!secret) return true;
+  if (!secret) return false;
   var auth = request.headers.get("authorization") || "";
-  return auth === "Bearer " + secret;
+  var expected = "Bearer " + secret;
+  if (auth.length !== expected.length) return false;
+  var a = new TextEncoder().encode(auth);
+  var b = new TextEncoder().encode(expected);
+  return crypto.subtle.timingSafeEqual(a, b);
 }
 
 async function handleFilter(request, env, url, corsHeaders) {
