@@ -16,7 +16,7 @@
 
 // ==================== CẤU HÌNH ====================
 var WORKER_URL = "https://locket-gold.locket-gold.workers.dev";
-var FILTER_ID = "off";
+var FILTER_ID = "anime_art";
 // ==================================================
 
 (function() {
