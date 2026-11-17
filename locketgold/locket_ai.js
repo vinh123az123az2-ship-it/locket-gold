@@ -8,9 +8,7 @@
 
 // ==================== CẤU HÌNH ====================
 // Thay bằng URL Worker Cloudflare sau khi deploy
-var WORKER_URL = "WORKER_URL_HERE";
-// Pre-shared secret — phải khớp với WORKER_SECRET env var trên Worker
-var WORKER_SECRET = "WORKER_SECRET_HERE";
+var WORKER_URL = "https://locket-gold.locket-gold.workers.dev";
 // ==================================================
 
 (function() {
@@ -55,10 +53,6 @@ function handleFilter(filterId, body, contentType) {
     "Content-Type": contentType || "application/octet-stream",
     "X-Filter-Id": filterId
   };
-  if (WORKER_SECRET && WORKER_SECRET !== "WORKER_SECRET_HERE") {
-    reqHeaders["Authorization"] = "Bearer " + WORKER_SECRET;
-  }
-
   $httpClient.post({
     url: workerUrl,
     body: body,
@@ -99,10 +93,6 @@ function handlePhotobooth(filterId, body, contentType) {
     "X-Shot-Number": String(shotCount),
     "X-Filter-Id": filterId
   };
-  if (WORKER_SECRET && WORKER_SECRET !== "WORKER_SECRET_HERE") {
-    pbHeaders["Authorization"] = "Bearer " + WORKER_SECRET;
-  }
-
   $httpClient.post({
     url: workerUrl,
     body: body,
