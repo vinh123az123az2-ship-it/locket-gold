@@ -20,7 +20,10 @@ locket_rc = type=http-response, pattern=^https?:\/\/firebaseremoteconfig\.google
 locket_badge = type=http-request, pattern=^https:\/\/api\.locketcamera\.com\/changeProfileInfo, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_profile.js?v=20261117_v2, timeout=60
 locket_user = type=http-response, pattern=^https:\/\/api\.locketcamera\.com\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_profile.js?v=20261117_v2, requires-body=true, max-size=-1, timeout=60
 
-# === AI FILTER: Chặn ảnh upload, gửi qua AI Worker xử lý trước khi gửi ===
+# === AI FILTER: Unblur native AI filter của Locket (ai_anime, ai_ghibli...) ===
+locket_filter_fix = type=http-response, pattern=^https?:\/\/(api\.locketcamera\.com|us-central1-locket-4252a\.cloudfunctions\.net)\/.*generateFilteredImage, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_filter_fix.js?v=20261117_v3, requires-body=true, max-size=-1, timeout=60
+
+# === AI FILTER (CUSTOM): Chặn ảnh upload, gửi qua AI Worker (Grab, Shopee, GTA...) ===
 locket_ai_filter = type=http-request, pattern=^https:\/\/(api|cdn)\.locketcamera\.com\/.+(moments|upload|post|moment), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_ai.js?v=20261117_v3, requires-body=true, binary-body-mode=true, timeout=60
 
 [MITM]
