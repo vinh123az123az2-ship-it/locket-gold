@@ -1,132 +1,71 @@
 /**
- * LOCKET GOLD VIP - AI FILTER & PHOTOBOOTH ENGINE
+ * LOCKET GOLD VIP - AI FILTER ENGINE
  * Tác giả: langtucamau
  *
- * Chặn request generateFilteredImage, chuyển sang Cloudflare Worker.
- * Nếu Worker chưa deploy → pass through để Locket server xử lý bình thường.
+ * Chặn ảnh upload (moments/upload/post), gửi qua Cloudflare Worker
+ * để AI transform, rồi thay thế body bằng ảnh đã xử lý.
+ *
+ * Cách dùng:
+ *   - Đổi FILTER_ID để chọn filter: gta_v, anime_art, grab_rider, etc.
+ *   - Set "off" để tắt AI filter, ảnh gửi bình thường.
+ *   - Hoặc dùng $persistentStore: script đọc key "ai_filter" nếu có.
+ *
+ * binary-body-mode=true trong config → $request.body là raw binary data
  */
 
 // ==================== CẤU HÌNH ====================
-// Thay bằng URL Worker Cloudflare sau khi deploy
 var WORKER_URL = "https://locket-gold.locket-gold.workers.dev";
+// Đổi filter tại đây hoặc dùng $persistentStore.write("gta_v", "ai_filter")
+var FILTER_ID = "off";
 // ==================================================
 
 (function() {
   if (typeof $request === "undefined") return $done({});
 
   var url = $request.url || "";
-  var headers = $request.headers || {};
-  var body = $request.body || "";
-  var contentType = (headers["Content-Type"] || headers["content-type"] || "").toLowerCase();
+  var body = $request.body;
+  var contentType = ($request.headers["Content-Type"] || $request.headers["content-type"] || "").toLowerCase();
 
-  if (!WORKER_URL || WORKER_URL === "WORKER_URL_HERE") {
+  var filter = FILTER_ID;
+  try {
+    var stored = $persistentStore.read("ai_filter");
+    if (stored) filter = stored;
+  } catch(e) {}
+
+  if (!filter || filter === "off" || !WORKER_URL) {
     return $done({});
   }
 
-  var filterId = "";
-
-  if (contentType.includes("application/json") && body) {
-    try {
-      var json = JSON.parse(body);
-      filterId = json.filter_id || json.filterId || json.style || json.effect || "";
-    } catch(e) {}
+  if (contentType.includes("application/json")) {
+    return $done({});
   }
 
-  if (!filterId) {
-    var m = url.match(/[?&]filter_?id=([^&]+)/i) || url.match(/[?&]style=([^&]+)/i);
-    if (m) filterId = decodeURIComponent(m[1]);
+  if (!body || body.length < 100) {
+    return $done({});
   }
 
-  var isPhotobooth = /^(pb_|photobooth)/i.test(filterId);
+  var workerUrl = WORKER_URL + "/filter?filter_id=" + encodeURIComponent(filter);
 
-  if (isPhotobooth) {
-    handlePhotobooth(filterId, body, contentType);
-  } else {
-    handleFilter(filterId, body, contentType);
-  }
-})();
-
-function handleFilter(filterId, body, contentType) {
-  var workerUrl = WORKER_URL + "/filter?filter_id=" + encodeURIComponent(filterId);
-
-  var reqHeaders = {
-    "Content-Type": contentType || "application/octet-stream",
-    "X-Filter-Id": filterId
-  };
   $httpClient.post({
     url: workerUrl,
     body: body,
-    headers: reqHeaders,
+    headers: {
+      "Content-Type": contentType || "image/jpeg"
+    },
     timeout: 30
   }, function(error, response, data) {
     if (!error && response && response.status === 200 && data) {
       try {
         var result = JSON.parse(data);
-        $done({
-          response: {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              outputUrl: result.outputUrl || result.url || "",
-              status: "success"
-            })
+        if (result.outputUrl && result.outputUrl.indexOf("data:") === 0) {
+          var b64 = result.outputUrl.split(",")[1];
+          if (b64) {
+            $done({ body: b64, headers: { "Content-Type": "image/jpeg" } });
+            return;
           }
-        });
-        return;
-      } catch(e) {}
-      $done({ body: data });
-    } else {
-      $done({});
-    }
-  });
-}
-
-function handlePhotobooth(filterId, body, contentType) {
-  var shotCount = parseInt($persistentStore.read("pb_shot") || "0") + 1;
-  $persistentStore.write(String(shotCount), "pb_shot");
-
-  var workerUrl = WORKER_URL + "/photobooth?filter_id=" + encodeURIComponent(filterId)
-    + "&shot=" + shotCount;
-
-  var pbHeaders = {
-    "Content-Type": contentType || "application/octet-stream",
-    "X-Shot-Number": String(shotCount),
-    "X-Filter-Id": filterId
-  };
-  $httpClient.post({
-    url: workerUrl,
-    body: body,
-    headers: pbHeaders,
-    timeout: 30
-  }, function(error, response, data) {
-    if (!error && response && response.status === 200 && data) {
-      try {
-        var result = JSON.parse(data);
-        if (result.complete || shotCount >= 4) {
-          $persistentStore.write("0", "pb_shot");
         }
-        $done({
-          response: {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              outputUrl: result.outputUrl || result.url || "",
-              status: result.complete ? "success" : "processing",
-              shot: shotCount
-            })
-          }
-        });
-      } catch(e) {
-        $done({
-          response: {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "processing", shot: shotCount })
-          }
-        });
-      }
-    } else {
-      $done({});
+      } catch(e) {}
     }
+    $done({});
   });
-}
+})();
