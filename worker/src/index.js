@@ -103,15 +103,28 @@ function pickField(body, fields) {
   return "";
 }
 
+function isLocketBucket(b) {
+  return typeof b === "string" && /^locket[-_]/i.test(b);
+}
+
 function isAllowedImageUrl(u) {
   try {
     var h = new URL(u);
     if (h.protocol !== "https:") return false;
     var host = h.hostname;
     var path = h.pathname || "";
-    // firebasestorage/storage: chỉ cho bucket Locket (chặn multi-tenant bypass)
-    if (host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com") {
-      return /\/locket[-_a-z0-9]*\//i.test(path) || /%2flocket/i.test(h.search || "");
+    // firebasestorage: /v0/b/<bucket>/o/... — parse bucket chính xác
+    if (host === "firebasestorage.googleapis.com") {
+      var m = path.match(/^\/v0\/b\/([^\/]+)\/o\//);
+      return !!m && isLocketBucket(decodeURIComponent(m[1]));
+    }
+    // storage.googleapis.com/<bucket>/... hoặc <bucket>.storage.googleapis.com/...
+    if (host === "storage.googleapis.com") {
+      var seg = path.match(/^\/([^\/]+)\//);
+      return !!seg && isLocketBucket(decodeURIComponent(seg[1]));
+    }
+    if (host.endsWith(".storage.googleapis.com")) {
+      return isLocketBucket(host.replace(".storage.googleapis.com", ""));
     }
     if (host === "locketcamera.com" || host.endsWith(".locketcamera.com")) return true;
   } catch (e) {}
