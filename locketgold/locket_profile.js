@@ -2,7 +2,7 @@
  * =============================================================================
  *   🚀 LOCKET GOLD VIP - PROFILE BADGE & AI MOMENT UNLOCKER
  *   Tác giả: langtucamau
- *   Hỗ trợ: https://www.facebook.com/van.nguyen.407297
+ *   Hỗ trợ: https://github.com/vinh123az123az2-ship-it/locket-gold
  *   Tính năng:
  *     1. Bật huy hiệu Locket Gold vĩnh viễn trên trang cá nhân
  *     2. Bẻ khóa toàn bộ ảnh AI / Moment có bộ lọc Gold

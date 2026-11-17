@@ -2,7 +2,7 @@
  * =============================================================================
  *   🚀 LOCKET GOLD VIP - REVENUECAT SUBSCRIPTION MODIFIER
  *   Tác giả: langtucamau
- *   Hỗ trợ: https://www.facebook.com/van.nguyen.407297
+ *   Hỗ trợ: https://github.com/vinh123az123az2-ship-it/locket-gold
  * =============================================================================
  */
 

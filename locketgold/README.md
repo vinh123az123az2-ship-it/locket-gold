@@ -5,7 +5,7 @@
 # 💛 Locket Gold VIP - langtucamau
 
 > **Bộ công cụ chuyên biệt mở khóa Locket Gold VIP vĩnh viễn & Chống thu hồi**  
-> 🌐 Kênh hỗ trợ: [Facebook langtucamau](https://www.facebook.com/van.nguyen.407297)  
+> 🌐 Kênh hỗ trợ: [Facebook langtucamau](https://github.com/vinh123az123az2-ship-it/locket-gold)  
 > 👑 Bản quyền phát triển bởi: **langtucamau (langtucamau)**
 
 ---
@@ -154,7 +154,7 @@ Sau khi Locket đã lên Gold thành công, nếu bạn không muốn bật VPN 
 
 <details>
 <summary><b>2. Dùng DNS chống thu hồi này mạng có bị chậm hay lag không?</b></summary>
-Hoàn toàn không! Cấu hình sử dụng công nghệ <b>Split DNS</b>, chỉ định tuyến duy nhất các yêu cầu kiểm tra của Locket về server chống thu hồi của langtucamau (ID: <code>a2dd89</code>), còn toàn bộ mạng lướt web, Facebook, TikTok, YouTube... vẫn dùng 100% mạng gốc tốc độ cao.
+Hoàn toàn không! Cấu hình sử dụng công nghệ <b>Split DNS</b>, chỉ định tuyến duy nhất các yêu cầu kiểm tra của Locket về server chống thu hồi của langtucamau (ID: <code>ca2afd</code>), còn toàn bộ mạng lướt web, Facebook, TikTok, YouTube... vẫn dùng 100% mạng gốc tốc độ cao.
 </details>
 
 <details>
@@ -167,5 +167,5 @@ Có! Cấu hình này được tối ưu sẵn trên máy chủ NextDNS cá nhâ
 ## 👨‍💻 Thông tin phát triển
 
 - **Bản quyền & Phát triển:** langtucamau (langtucamau)
-- **Kênh thông báo & Hỗ trợ:** [Facebook langtucamau](https://www.facebook.com/van.nguyen.407297)
+- **Kênh thông báo & Hỗ trợ:** [Facebook langtucamau](https://github.com/vinh123az123az2-ship-it/locket-gold)
 - **Giấy phép:** Được phát hành miễn phí cho cộng đồng người dùng iOS. Nghiêm cấm mọi hành vi sao chép nhằm mục đích thương mại.

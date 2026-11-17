@@ -2,7 +2,7 @@
  * =============================================================================
  *   🚀 LOCKET GOLD VIP - DELETE ETAG & CACHE HEADER SCRIPT
  *   Tác giả: langtucamau
- *   Hỗ trợ: https://www.facebook.com/van.nguyen.407297
+ *   Hỗ trợ: https://github.com/vinh123az123az2-ship-it/locket-gold
  * =============================================================================
  */
 
