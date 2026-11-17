@@ -5,7 +5,6 @@
 # 💛 Locket Gold VIP - langtucamau
 
 > **Bộ công cụ chuyên biệt mở khóa Locket Gold VIP vĩnh viễn & Chống thu hồi**  
-> 🌐 Kênh hỗ trợ: [Facebook langtucamau](https://www.facebook.com/van.nguyen.407297)  
 > 👑 Bản quyền phát triển bởi: **langtucamau (langtucamau)**
 
 ---
