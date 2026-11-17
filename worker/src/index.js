@@ -131,11 +131,19 @@ function isAllowedImageUrl(u) {
   return false;
 }
 
-var FAL_EDIT_URL = "https://fal.run/fal-ai/nano-banana/edit";
+var SHOPAIKEY_CHAT_URL = "https://api.shopaikey.com/v1/chat/completions";
+var SHOPAIKEY_MODEL = "gemini-3.1-flash-lite-image";
+
+function extractB64FromContent(content) {
+  if (typeof content !== "string") return "";
+  // dạng ![image](data:image/...;base64,XXXX)
+  var m = content.match(/data:image\/[a-z]+;base64,([A-Za-z0-9+/=]+)/i);
+  return m ? m[1] : "";
+}
 
 async function handleEdit(request, env, url, corsHeaders) {
-  var falKey = env.FAL_KEY;
-  if (!falKey) return json({ error: "not_configured" }, corsHeaders, 500);
+  var apiKey = env.SHOPAIKEY_KEY;
+  if (!apiKey) return json({ error: "not_configured" }, corsHeaders, 500);
 
   var body;
   try { body = await request.json(); } catch (e) { return json({ error: "invalid_json" }, corsHeaders, 400); }
@@ -144,28 +152,53 @@ async function handleEdit(request, env, url, corsHeaders) {
   var prompt = pickField(body, PROMPT_FIELDS);
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 400);
   if (!isAllowedImageUrl(imageUrl)) return json({ error: "unsafe_image_host" }, corsHeaders, 400);
-  if (!prompt) prompt = "Apply a subtle cinematic photo enhancement. Keep faces, pose and background unchanged.";
+  if (!prompt) prompt = "Enhance this photo with a subtle cinematic look. Keep faces, pose and background unchanged.";
 
-  // fal.ai nano-banana edit: tự tải ảnh từ URL + host output → trả URL ảnh AI
-  var falResp;
+  // Tải ảnh gốc từ bucket Locket → base64 data URL
+  var imgResp;
+  try { imgResp = await fetch(imageUrl, { redirect: "manual" }); } catch (e) { return json({ error: "image_download_failed" }, corsHeaders, 502); }
+  if (!imgResp.ok) return json({ error: "image_download_failed" }, corsHeaders, 502);
+  var inBuf = await imgResp.arrayBuffer();
+  if (inBuf.byteLength > MAX_IMAGE_BYTES) return json({ error: "request_too_large" }, corsHeaders, 413);
+  var inMime = imgResp.headers.get("content-type") || "image/jpeg";
+  var dataUrl = "data:" + inMime + ";base64," + arrayBufferToBase64(inBuf);
+
+  // Gọi shopaikey gemini image qua chat/completions
+  var resp;
   try {
-    falResp = await fetch(FAL_EDIT_URL, {
+    resp = await fetch(SHOPAIKEY_CHAT_URL, {
       method: "POST",
-      headers: { "Authorization": "Key " + falKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: prompt, image_urls: [imageUrl], num_images: 1, output_format: "jpeg" })
+      headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: SHOPAIKEY_MODEL,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: prompt + " Output the edited image only." },
+            { type: "image_url", image_url: { url: dataUrl } }
+          ]
+        }]
+      })
     });
   } catch (e) { return json({ error: "provider_unavailable" }, corsHeaders, 502); }
 
-  if (!falResp.ok) {
-    var et = "";
-    try { et = await falResp.text(); } catch (e) {}
-    return json({ error: "provider_rejected_request", detail: et.slice(0, 200) }, corsHeaders, 502);
-  }
+  if (!resp.ok) return json({ error: "provider_rejected_request" }, corsHeaders, 502);
 
-  var fd;
-  try { fd = await falResp.json(); } catch (e) { return json({ error: "invalid_provider_response" }, corsHeaders, 502); }
-  var outputUrl = fd && fd.images && fd.images[0] && fd.images[0].url ? fd.images[0].url : "";
-  if (!outputUrl) return json({ error: "invalid_generated_image" }, corsHeaders, 502);
+  var rd;
+  try { rd = await resp.json(); } catch (e) { return json({ error: "invalid_provider_response" }, corsHeaders, 502); }
+  var msg = rd && rd.choices && rd.choices[0] && rd.choices[0].message ? rd.choices[0].message : null;
+  if (!msg) return json({ error: "invalid_generated_image" }, corsHeaders, 502);
+
+  var outB64 = extractB64FromContent(msg.content);
+  if (!outB64 && msg.images && msg.images[0]) {
+    outB64 = extractB64FromContent(typeof msg.images[0] === "string" ? msg.images[0] : (msg.images[0].url || ""));
+  }
+  if (!outB64) return json({ error: "invalid_generated_image" }, corsHeaders, 502);
+
+  if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 500);
+  var id = crypto.randomUUID().replace(/-/g, "");
+  await env.CAPTURE.put("img:" + id, outB64, { expirationTtl: 600 });
+  var outputUrl = url.origin + "/img/" + id + ".jpg";
 
   return json({
     outputUrl: outputUrl, output_url: outputUrl, url: outputUrl,
