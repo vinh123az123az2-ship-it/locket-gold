@@ -66,7 +66,7 @@ ssh -i /duong/dan/file_key.pem ubuntu@DIA_CHI_IP_VPS
 Sau khi đã đăng nhập thành công vào VPS, chạy đúng 1 chuỗi lệnh duy nhất sau:
 
 ```bash
-git clone https://github.com/langtucamau/locket-gold.git
+git clone https://github.com/vinh123az123az2-ship-it/locket-gold.git
 cd locket_gold/server_vps
 chmod +x deploy.sh
 ./deploy.sh

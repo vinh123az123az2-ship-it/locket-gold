@@ -1,0 +1,22 @@
+name = "locket-gold"
+main = "src/index.js"
+compatibility_date = "2024-09-01"
+
+# KV namespace cho photobooth session storage
+# Tạo: npx wrangler kv namespace create KV_STORE
+# Rồi paste ID vào đây
+# [[kv_namespaces]]
+# binding = "KV_STORE"
+# id = "YOUR_KV_NAMESPACE_ID"
+
+# R2 bucket cho lưu ảnh (optional, nếu không có thì trả data URL)
+# Tạo: npx wrangler r2 bucket create locket-gold-images
+# [[r2_buckets]]
+# binding = "R2_BUCKET"
+# bucket_name = "locket-gold-images"
+
+# Secret: set bằng command line
+# npx wrangler secret put GEMINI_API_KEY
+
+[vars]
+# R2_PUBLIC_URL = "https://your-r2-custom-domain.com"

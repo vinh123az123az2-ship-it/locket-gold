@@ -28,7 +28,7 @@ const popupConfig = {
     {
       "title": "Locket Gold VIP - langtucamau ✨",
       "body": "Đã kích hoạt thành công Locket Gold VIP 💛",
-      "imageURL": "https://raw.githubusercontent.com/langtucamau/locket-gold/refs/heads/main/assets/welcome_banner.png"
+      "imageURL": "https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/main/assets/welcome_banner.png"
     }
   ],
   "primary_button_title": "Xong",

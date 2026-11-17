@@ -1,47 +1,130 @@
 /**
- * =============================================================================
- * 👑 LOCKET GOLD VIP - AI FILTER INTERCEPTOR
+ * LOCKET GOLD VIP - AI FILTER & PHOTOBOOTH ENGINE
  * Tác giả: langtucamau
- * Hỗ trợ: https://www.facebook.com/van.nguyen.407297
- * Máy chủ AI: https://locket-gold-m1xo.onrender.com (Render Cloud)
- * =============================================================================
+ *
+ * Chặn request generateFilteredImage, chuyển sang Cloudflare Worker.
+ * Nếu Worker chưa deploy → pass through để Locket server xử lý bình thường.
  */
 
-// 🌐 ĐƯỜNG LINK MÁY CHỦ AI CỦA BẠN TRÊN RENDER:
-// Các filter có thể chọn:
-// - vintage_film: Hiệu ứng máy phim / Đang Rửa Ảnh Polaroid (Mặc định)
-// - anime_art: Hiệu ứng hoạt hình Ghibli sắc nét
-// - cyber_langtucamau: Tông màu Cyan Neon độc quyền langtucamau
-const AI_SERVER_URL = "https://locket-gold-m1xo.onrender.com/process?filter=vintage_film";
+// ==================== CẤU HÌNH ====================
+// Thay bằng URL Worker Cloudflare sau khi deploy
+var WORKER_URL = "WORKER_URL_HERE";
+// ==================================================
 
 (function() {
-  if (typeof $request === "undefined" || !$request.body) {
+  if (typeof $request === "undefined") return $done({});
+
+  var url = $request.url || "";
+  var headers = $request.headers || {};
+  var body = $request.body || "";
+  var contentType = (headers["Content-Type"] || headers["content-type"] || "").toLowerCase();
+
+  if (!WORKER_URL || WORKER_URL === "WORKER_URL_HERE") {
     return $done({});
   }
 
-  const headers = $request.headers || {};
-  const contentType = (headers["Content-Type"] || headers["content-type"] || "").toLowerCase();
+  var filterId = "";
 
-  // Bỏ qua các gói tin JSON thuần (như gửi caption, like, bình luận)
-  if (contentType.includes("application/json")) {
-    return $done({});
+  if (contentType.includes("application/json") && body) {
+    try {
+      var json = JSON.parse(body);
+      filterId = json.filter_id || json.filterId || json.style || json.effect || "";
+    } catch(e) {}
   }
 
-  // Gửi ảnh sang máy chủ AI của langtucamau để áp dụng hiệu ứng
+  if (!filterId) {
+    var m = url.match(/[?&]filter_?id=([^&]+)/i) || url.match(/[?&]style=([^&]+)/i);
+    if (m) filterId = decodeURIComponent(m[1]);
+  }
+
+  var isPhotobooth = /^(pb_|photobooth)/i.test(filterId);
+
+  if (isPhotobooth) {
+    handlePhotobooth(filterId, body, contentType);
+  } else {
+    handleFilter(filterId, body, contentType);
+  }
+})();
+
+function handleFilter(filterId, body, contentType) {
+  var workerUrl = WORKER_URL + "/filter?filter_id=" + encodeURIComponent(filterId);
+
   $httpClient.post({
-    url: AI_SERVER_URL,
-    body: $request.body,
+    url: workerUrl,
+    body: body,
     headers: {
-      "Content-Type": contentType || "image/jpeg"
+      "Content-Type": contentType || "application/octet-stream",
+      "X-Filter-Id": filterId
     },
-    timeout: 20
+    timeout: 30
   }, function(error, response, data) {
     if (!error && response && response.status === 200 && data) {
-      // ✅ Thay thế ảnh gốc bằng ảnh đã được AI "rửa ảnh" và áp filter
+      try {
+        var result = JSON.parse(data);
+        $done({
+          response: {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              outputUrl: result.outputUrl || result.url || "",
+              status: "success"
+            })
+          }
+        });
+        return;
+      } catch(e) {}
       $done({ body: data });
     } else {
-      // ⚠️ Nếu mạng lag hoặc server chưa phản hồi kịp, giữ nguyên ảnh gốc để không bị gián đoạn gửi
       $done({});
     }
   });
-})();
+}
+
+function handlePhotobooth(filterId, body, contentType) {
+  var shotCount = parseInt($persistentStore.read("pb_shot") || "0") + 1;
+  $persistentStore.write(String(shotCount), "pb_shot");
+
+  var workerUrl = WORKER_URL + "/photobooth?filter_id=" + encodeURIComponent(filterId)
+    + "&shot=" + shotCount;
+
+  $httpClient.post({
+    url: workerUrl,
+    body: body,
+    headers: {
+      "Content-Type": contentType || "application/octet-stream",
+      "X-Shot-Number": String(shotCount),
+      "X-Filter-Id": filterId
+    },
+    timeout: 30
+  }, function(error, response, data) {
+    if (!error && response && response.status === 200 && data) {
+      try {
+        var result = JSON.parse(data);
+        if (result.complete || shotCount >= 4) {
+          $persistentStore.write("0", "pb_shot");
+        }
+        $done({
+          response: {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              outputUrl: result.outputUrl || result.url || "",
+              status: result.complete ? "success" : "processing",
+              shot: shotCount
+            })
+          }
+        });
+      } catch(e) {
+        $done({
+          response: {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "processing", shot: shotCount })
+          }
+        });
+      }
+    } else {
+      $done({});
+    }
+  });
+}
