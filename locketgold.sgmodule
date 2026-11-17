@@ -6,6 +6,18 @@
 #!tgchannel=https://github.com/vinh123az123az2-ship-it/locket-gold
 #!icon=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/assets/banner.png
 
+[Rule]
+# Chặn QUIC/HTTP3 (UDP) để ép app dùng TCP → Shadowrocket MITM mới chặn được
+AND,((DOMAIN,firebaseremoteconfig.googleapis.com),(PROTOCOL,UDP)),REJECT
+AND,((DOMAIN,api.revenuecat.com),(PROTOCOL,UDP)),REJECT
+AND,((DOMAIN,api.rc-backup.com),(PROTOCOL,UDP)),REJECT
+AND,((DOMAIN,api.locketcamera.com),(PROTOCOL,UDP)),REJECT
+AND,((DOMAIN-SUFFIX,locketcamera.com),(PROTOCOL,UDP)),REJECT
+AND,((DOMAIN,us-central1-locket-4252a.cloudfunctions.net),(PROTOCOL,UDP)),REJECT
+
+[Host]
+firebaseremoteconfigrealtime.googleapis.com = 0.0.0.0
+
 [Script]
 # === CORE: Mở khóa Gold VIP ===
 revenuecat = type=http-response, pattern=^https:\/\/api\.(revenuecat|rc-backup)\.com\/.+\/(receipts$|subscribers\/[^/]+$), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locketgold.js?v=20261117_v5, requires-body=true, max-size=-1, timeout=60
