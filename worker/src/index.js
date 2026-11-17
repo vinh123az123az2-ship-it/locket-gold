@@ -2,14 +2,14 @@
  * LOCKET GOLD VIP - Cloudflare Worker
  * Tác giả: langtucamau
  *
- * Xử lý AI filter (Google Imagen/Gemini) + Photobooth (4-shot grid)
+ * Xử lý AI filter (Google Gemini) + Photobooth (4-shot grid)
  *
  * Deploy: npx wrangler deploy
  * Env vars cần set:
- *   GEMINI_API_KEY - Google AI Studio API key
+ *   GEMINI_API_KEY  - Google AI Studio API key
+ *   WORKER_SECRET   - Pre-shared secret cho auth (set cùng giá trị trong locket_ai.js)
  */
 
-// ==================== FILTER PROMPTS ====================
 const FILTER_PROMPTS = {
   grab_rider: "Transform this person into a Grab delivery rider wearing a bright green Grab jacket and green Grab helmet, riding a motorbike. Keep the face recognizable.",
   shopee_food: "Transform this person into a ShopeeFood delivery rider wearing an orange ShopeeFood uniform with orange cap and carrying a delivery bag. Keep the face recognizable.",
@@ -33,8 +33,8 @@ const FILTER_PROMPTS = {
   neon: "Transform this photo with intense neon glow effects, as if everything is outlined in bright neon tubes against a dark background."
 };
 
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-fast-generate-001:predict";
 const GEMINI_EDIT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export default {
   async fetch(request, env) {
@@ -42,9 +42,9 @@ export default {
     const path = url.pathname;
 
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "*"
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Filter-Id, X-Shot-Number, X-Session-Id"
     };
 
     if (request.method === "OPTIONS") {
@@ -61,44 +61,55 @@ export default {
       }
 
       if (path === "/filter" && request.method === "POST") {
+        if (!verifyAuth(request, env)) {
+          return json({ error: "unauthorized" }, corsHeaders, 401);
+        }
         return await handleFilter(request, env, url, corsHeaders);
       }
 
       if (path === "/photobooth" && request.method === "POST") {
+        if (!verifyAuth(request, env)) {
+          return json({ error: "unauthorized" }, corsHeaders, 401);
+        }
         return await handlePhotobooth(request, env, url, corsHeaders);
       }
 
       return json({ error: "not found" }, corsHeaders, 404);
     } catch (err) {
-      return json({ error: err.message || "internal error" }, corsHeaders, 500);
+      return json({ error: "image processing failed" }, corsHeaders, 500);
     }
   }
 };
 
+function verifyAuth(request, env) {
+  var secret = env.WORKER_SECRET;
+  if (!secret) return true;
+  var auth = request.headers.get("authorization") || "";
+  return auth === "Bearer " + secret;
+}
+
 async function handleFilter(request, env, url, corsHeaders) {
-  const apiKey = env.GEMINI_API_KEY;
+  var apiKey = env.GEMINI_API_KEY;
   if (!apiKey) {
-    return json({ error: "GEMINI_API_KEY not configured" }, corsHeaders, 500);
+    return json({ error: "API key not configured" }, corsHeaders, 500);
   }
 
-  const filterId = url.searchParams.get("filter_id") || "vintage_film";
-  const prompt = FILTER_PROMPTS[filterId] || FILTER_PROMPTS.vintage_film;
+  var filterId = url.searchParams.get("filter_id") || "vintage_film";
+  var prompt = FILTER_PROMPTS[filterId] || FILTER_PROMPTS.vintage_film;
 
-  const contentType = request.headers.get("content-type") || "";
-  let imageBase64 = "";
-  let imageMime = "image/jpeg";
+  var contentType = request.headers.get("content-type") || "";
+  var imageBase64 = "";
+  var imageMime = "image/jpeg";
 
   if (contentType.includes("application/json")) {
-    const body = await request.json();
+    var body = await request.json();
     imageBase64 = body.image || body.photo || body.imageData || "";
-    if (body.image_url || body.imageUrl) {
-      const imgResp = await fetch(body.image_url || body.imageUrl);
-      const imgBuf = await imgResp.arrayBuffer();
-      imageBase64 = arrayBufferToBase64(imgBuf);
-      imageMime = imgResp.headers.get("content-type") || "image/jpeg";
-    }
+    imageMime = body.mime || "image/jpeg";
   } else {
-    const imgBuf = await request.arrayBuffer();
+    var imgBuf = await request.arrayBuffer();
+    if (imgBuf.byteLength > MAX_IMAGE_BYTES) {
+      return json({ error: "image too large" }, corsHeaders, 400);
+    }
     imageBase64 = arrayBufferToBase64(imgBuf);
     imageMime = contentType || "image/jpeg";
   }
@@ -107,19 +118,19 @@ async function handleFilter(request, env, url, corsHeaders) {
     return json({ error: "no image provided" }, corsHeaders, 400);
   }
 
-  const result = await callGeminiImageEdit(apiKey, imageBase64, imageMime, prompt);
+  var result = await callGeminiImageEdit(apiKey, imageBase64, imageMime, prompt);
 
   if (result.error) {
-    return json({ error: result.error }, corsHeaders, 500);
+    return json({ error: "image processing failed" }, corsHeaders, 500);
   }
 
   if (env.R2_BUCKET) {
-    const key = "filter/" + Date.now() + "_" + filterId + ".jpg";
-    const imgBytes = base64ToArrayBuffer(result.imageBase64);
+    var key = "filter/" + Date.now() + "_" + filterId + ".jpg";
+    var imgBytes = base64ToArrayBuffer(result.imageBase64);
     await env.R2_BUCKET.put(key, imgBytes, {
       httpMetadata: { contentType: "image/jpeg" }
     });
-    const publicUrl = (env.R2_PUBLIC_URL || url.origin) + "/" + key;
+    var publicUrl = (env.R2_PUBLIC_URL || url.origin) + "/" + key;
     return json({ outputUrl: publicUrl, status: "success" }, corsHeaders);
   }
 
@@ -130,23 +141,34 @@ async function handleFilter(request, env, url, corsHeaders) {
 }
 
 async function handlePhotobooth(request, env, url, corsHeaders) {
-  const apiKey = env.GEMINI_API_KEY;
+  var apiKey = env.GEMINI_API_KEY;
   if (!apiKey) {
-    return json({ error: "GEMINI_API_KEY not configured" }, corsHeaders, 500);
+    return json({ error: "API key not configured" }, corsHeaders, 500);
   }
 
-  const filterId = url.searchParams.get("filter_id") || "pb_classic";
-  const shot = parseInt(url.searchParams.get("shot") || "1");
-  const sessionId = request.headers.get("x-session-id") || "default";
+  var filterId = url.searchParams.get("filter_id") || "pb_classic";
+  var shot = parseInt(url.searchParams.get("shot") || "1");
 
-  const contentType = request.headers.get("content-type") || "";
-  let imageBase64 = "";
+  if (shot < 1 || shot > 4 || isNaN(shot)) {
+    return json({ error: "invalid shot number" }, corsHeaders, 400);
+  }
+
+  var sessionId = request.headers.get("x-session-id") || "";
+  if (!sessionId || sessionId.length < 8 || sessionId.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+    sessionId = crypto.randomUUID();
+  }
+
+  var contentType = request.headers.get("content-type") || "";
+  var imageBase64 = "";
 
   if (contentType.includes("application/json")) {
-    const body = await request.json();
+    var body = await request.json();
     imageBase64 = body.image || body.photo || "";
   } else {
-    const imgBuf = await request.arrayBuffer();
+    var imgBuf = await request.arrayBuffer();
+    if (imgBuf.byteLength > MAX_IMAGE_BYTES) {
+      return json({ error: "image too large" }, corsHeaders, 400);
+    }
     imageBase64 = arrayBufferToBase64(imgBuf);
   }
 
@@ -155,7 +177,7 @@ async function handlePhotobooth(request, env, url, corsHeaders) {
   }
 
   if (!env.KV_STORE) {
-    return json({ error: "KV_STORE not configured" }, corsHeaders, 500);
+    return json({ error: "storage not configured" }, corsHeaders, 500);
   }
 
   var kvKey = "pb:" + sessionId + ":" + shot;
@@ -165,6 +187,7 @@ async function handlePhotobooth(request, env, url, corsHeaders) {
     return json({
       status: "processing",
       shot: shot,
+      sessionId: sessionId,
       message: "Photo " + shot + "/4 received",
       complete: false
     }, corsHeaders);
@@ -178,11 +201,11 @@ async function handlePhotobooth(request, env, url, corsHeaders) {
   }
 
   if (images.length < 4) {
-    return json({ error: "missing photos, only " + images.length + "/4", complete: false }, corsHeaders, 400);
+    return json({ error: "missing photos", complete: false }, corsHeaders, 400);
   }
 
   var frameStyle = filterId.replace(/^pb_/, "") || "classic";
-  var composePrompt = "Create a 2x2 photobooth strip. Arrange these 4 photos in a grid layout with a " + frameStyle + " decorative frame. Add the frame style: " + frameStyle + ". Make it look like a real Korean-style 4-cut photobooth strip.";
+  var composePrompt = "Create a 2x2 photobooth strip. Arrange these 4 photos in a grid layout with a " + frameStyle + " decorative frame. Make it look like a real Korean-style 4-cut photobooth strip.";
 
   var result = await callGeminiCompose(apiKey, images, composePrompt);
 
@@ -191,7 +214,7 @@ async function handlePhotobooth(request, env, url, corsHeaders) {
   }
 
   if (result.error) {
-    return json({ error: result.error, complete: true }, corsHeaders, 500);
+    return json({ error: "photobooth processing failed", complete: true }, corsHeaders, 500);
   }
 
   if (env.R2_BUCKET) {
@@ -212,9 +235,12 @@ async function handlePhotobooth(request, env, url, corsHeaders) {
 }
 
 async function callGeminiImageEdit(apiKey, imageBase64, imageMime, prompt) {
-  var resp = await fetch(GEMINI_EDIT_URL + "?key=" + apiKey, {
+  var resp = await fetch(GEMINI_EDIT_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey
+    },
     body: JSON.stringify({
       contents: [{
         parts: [
@@ -230,8 +256,7 @@ async function callGeminiImageEdit(apiKey, imageBase64, imageMime, prompt) {
   });
 
   if (!resp.ok) {
-    var errText = await resp.text();
-    return { error: "Gemini API error: " + resp.status + " " + errText };
+    return { error: "upstream error " + resp.status };
   }
 
   var data = await resp.json();
@@ -245,7 +270,7 @@ async function callGeminiImageEdit(apiKey, imageBase64, imageMime, prompt) {
     }
   }
 
-  return { error: "No image in Gemini response" };
+  return { error: "no image generated" };
 }
 
 async function callGeminiCompose(apiKey, imageBase64Array, prompt) {
@@ -256,9 +281,12 @@ async function callGeminiCompose(apiKey, imageBase64Array, prompt) {
     });
   }
 
-  var resp = await fetch(GEMINI_EDIT_URL + "?key=" + apiKey, {
+  var resp = await fetch(GEMINI_EDIT_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey
+    },
     body: JSON.stringify({
       contents: [{ parts: parts }],
       generationConfig: {
@@ -269,8 +297,7 @@ async function callGeminiCompose(apiKey, imageBase64Array, prompt) {
   });
 
   if (!resp.ok) {
-    var errText = await resp.text();
-    return { error: "Gemini API error: " + resp.status + " " + errText };
+    return { error: "upstream error " + resp.status };
   }
 
   var data = await resp.json();
@@ -284,7 +311,7 @@ async function callGeminiCompose(apiKey, imageBase64Array, prompt) {
     }
   }
 
-  return { error: "No image in Gemini compose response" };
+  return { error: "no image composed" };
 }
 
 function json(data, corsHeaders, status) {

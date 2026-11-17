@@ -9,6 +9,8 @@
 // ==================== CẤU HÌNH ====================
 // Thay bằng URL Worker Cloudflare sau khi deploy
 var WORKER_URL = "WORKER_URL_HERE";
+// Pre-shared secret — phải khớp với WORKER_SECRET env var trên Worker
+var WORKER_SECRET = "WORKER_SECRET_HERE";
 // ==================================================
 
 (function() {
@@ -49,13 +51,18 @@ var WORKER_URL = "WORKER_URL_HERE";
 function handleFilter(filterId, body, contentType) {
   var workerUrl = WORKER_URL + "/filter?filter_id=" + encodeURIComponent(filterId);
 
+  var reqHeaders = {
+    "Content-Type": contentType || "application/octet-stream",
+    "X-Filter-Id": filterId
+  };
+  if (WORKER_SECRET && WORKER_SECRET !== "WORKER_SECRET_HERE") {
+    reqHeaders["Authorization"] = "Bearer " + WORKER_SECRET;
+  }
+
   $httpClient.post({
     url: workerUrl,
     body: body,
-    headers: {
-      "Content-Type": contentType || "application/octet-stream",
-      "X-Filter-Id": filterId
-    },
+    headers: reqHeaders,
     timeout: 30
   }, function(error, response, data) {
     if (!error && response && response.status === 200 && data) {
@@ -87,14 +94,19 @@ function handlePhotobooth(filterId, body, contentType) {
   var workerUrl = WORKER_URL + "/photobooth?filter_id=" + encodeURIComponent(filterId)
     + "&shot=" + shotCount;
 
+  var pbHeaders = {
+    "Content-Type": contentType || "application/octet-stream",
+    "X-Shot-Number": String(shotCount),
+    "X-Filter-Id": filterId
+  };
+  if (WORKER_SECRET && WORKER_SECRET !== "WORKER_SECRET_HERE") {
+    pbHeaders["Authorization"] = "Bearer " + WORKER_SECRET;
+  }
+
   $httpClient.post({
     url: workerUrl,
     body: body,
-    headers: {
-      "Content-Type": contentType || "application/octet-stream",
-      "X-Shot-Number": String(shotCount),
-      "X-Filter-Id": filterId
-    },
+    headers: pbHeaders,
     timeout: 30
   }, function(error, response, data) {
     if (!error && response && response.status === 200 && data) {
