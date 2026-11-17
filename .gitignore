@@ -1,0 +1,39 @@
+# Giữ các file mã nguồn chưa mã hóa ở máy cục bộ, tuyệt đối không đẩy lên GitHub
+/locketlam.js
+/locket_profile.js
+/deleteHeader.js
+/locket_remote.js
+
+# Cache & node
+node_modules/
+*.log
+langtucamau.mobileconfig
+scratch/
+
+# Sensitive files
+locketlam_session.json
+my_moments_*.json
+chat_history_*.json
+*.mp4
+
+# Python build & cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+tests/
+locketlam/modules/
+inspect_keys.py
+crop_*.jpg
+picker_*.jpg
+step_*.jpg
+video_contact_sheet.jpg
+video_frames/
+real_firebase_entries.json
+certs/
+*.key
+*Thư*
+*thu_muc*
+LocketGold_Server.mobileconfig

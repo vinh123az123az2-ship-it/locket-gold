@@ -1,0 +1,154 @@
+/**
+ * =============================================================================
+ *   🚀 LOCKET GOLD VIP - REVENUECAT SUBSCRIPTION MODIFIER
+ *   Tác giả: langtucamau
+ *   Hỗ trợ: https://www.facebook.com/van.nguyen.407297
+ * =============================================================================
+ */
+
+let obj = {};
+try {
+  obj = JSON.parse($response.body || '{}');
+} catch (e) {
+  obj = {};
+}
+
+obj.subscriber = obj.subscriber || {};
+
+const purchaseDate = "2024-05-18T08:30:00Z";
+const expiresDate = "2099-12-31T23:59:59Z";
+
+// Thông báo bản quyền
+obj.Attention = "Locket Gold VIP - Kích hoạt thành công bởi langtucamau!";
+
+const subInfo = {
+  "auto_resume_date": null,
+  "display_name": "locket_1600_1y",
+  "is_sandbox": false,
+  "ownership_type": "PURCHASED",
+  "billing_issues_detected_at": null,
+  "management_url": "https://apps.apple.com/account/subscriptions",
+  "period_type": "normal",
+  "price": {
+    "amount": 399000,
+    "currency": "VND"
+  },
+  "expires_date": expiresDate,
+  "grace_period_expires_date": null,
+  "refunded_at": null,
+  "unsubscribe_detected_at": null,
+  "original_purchase_date": purchaseDate,
+  "purchase_date": purchaseDate,
+  "store": "app_store",
+  "store_transaction_id": "2000001108724193"
+};
+
+const entitlementInfo = {
+  "grace_period_expires_date": null,
+  "purchase_date": purchaseDate,
+  "original_purchase_date": purchaseDate,
+  "product_identifier": "locket_1600_1y",
+  "expires_date": expiresDate,
+  "ownership_type": "PURCHASED",
+  "store": "app_store"
+};
+
+obj.subscriber.first_seen = purchaseDate;
+obj.subscriber.original_purchase_date = purchaseDate;
+obj.subscriber.management_url = "https://apps.apple.com/account/subscriptions";
+obj.subscriber.subscriptions = obj.subscriber.subscriptions || {};
+obj.subscriber.entitlements = obj.subscriber.entitlements || {};
+
+// Mở khóa toàn bộ các mã gói sản phẩm của Locket
+const products = [
+  "locket_1600_1y",
+  "locket_399_1m_only",
+  "locket_gold_yearly",
+  "locket_gold_monthly",
+  "locket_gold",
+  "locket_3600_1y",
+  "locket_4900_1m",
+  "gold_yearly",
+  "gold_monthly",
+  "locket_ai_yearly",
+  "locket_ai_monthly"
+];
+products.forEach(p => {
+  obj.subscriber.subscriptions[p] = subInfo;
+});
+
+// Mở khóa toàn bộ các Entitlements để không bị dính Paywall "Mở khóa bằng Locket Gold"
+const entitlements = [
+  "Gold",
+  "gold",
+  "Locket Gold",
+  "locket_gold",
+  "pro",
+  "Pro",
+  "vip",
+  "VIP",
+  "premium",
+  "Premium",
+  "camera_filter",
+  "camera_filters",
+  "camera_theme",
+  "camera_themes",
+  "app_icon",
+  "app_icons",
+  "app_icon_picker",
+  "profile_badge",
+  "custom_widget_frames",
+  "widget_frames",
+  "camera_roll",
+  "longer_video",
+  "locket_views",
+  "remove_ads",
+  "streak_recovery",
+  "Holiday",
+  "holidays",
+  "holiday_filters",
+  "camera_filters_holiday",
+  "easter",
+  "christmas",
+  "filters",
+  "all",
+  "custom_filters",
+  "camera_effects",
+  // 🚀 MỞ KHÓA BỘ LỌC AI & XEM ẢNH MỜ / PAYWALL AI MOMENTS:
+  "ai",
+  "AI",
+  "ai_filters",
+  "ai_filter",
+  "ai_moments",
+  "ai_moment",
+  "ai_camera",
+  "ai_camera_filter",
+  "ai_styles",
+  "ai_style",
+  "ai_generation",
+  "ai_generations",
+  "locket_ai",
+  "locket_ai_generation",
+  "locket_ai_filters",
+  "unlimited_ai",
+  "unlimited_generations",
+  "unblur",
+  "unblur_photos",
+  "unblur_moments",
+  "view_gold_photos",
+  "view_ai_photos",
+  "view_exclusive_moments",
+  "exclusive_moments",
+  "exclusive_filters",
+  "photo_styles",
+  "lens",
+  "lenses",
+  "gold_moments",
+  "gold_filters",
+  "show_gold_photos"
+];
+entitlements.forEach(e => {
+  obj.subscriber.entitlements[e] = entitlementInfo;
+});
+
+$done({ body: JSON.stringify(obj) });
