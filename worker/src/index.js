@@ -68,12 +68,40 @@ export default {
         return await handlePhotobooth(request, env, url, corsHeaders);
       }
 
+      if (path === "/generateFilteredImage") {
+        return await handleGenerateFilteredImage(request, env, url, corsHeaders);
+      }
+
       return json({ error: "not found" }, corsHeaders, 404);
     } catch (err) {
       return json({ error: "image processing failed" }, corsHeaders, 500);
     }
   }
 };
+
+async function handleGenerateFilteredImage(request, env, url, corsHeaders) {
+  // DEBUG: log full request để biết format, rồi trả mock
+  var reqBody = "";
+  try { reqBody = await request.text(); } catch (e) {}
+  console.log("=== generateFilteredImage REQUEST ===");
+  console.log("method:", request.method);
+  console.log("url:", request.url);
+  console.log("query:", url.search);
+  var hdrs = {};
+  for (var pair of request.headers.entries()) { hdrs[pair[0]] = pair[1]; }
+  console.log("headers:", JSON.stringify(hdrs));
+  console.log("body:", reqBody);
+  console.log("=== END ===");
+
+  // Trả mock để app không lỗi (tạm thời)
+  var imgUrl = "";
+  var m = reqBody.match(/https?:\/\/firebasestorage\.googleapis\.com\/[^"'\s\\]+/i) ||
+          reqBody.match(/https?:\/\/[^"'\s\\]+\.(jpg|jpeg|png|webp)[^"'\s\\]*/i);
+  if (m) imgUrl = m[0].replace(/\\u0026/g, "&").replace(/\\\//g, "/").replace(/\\/g, "");
+  var result = { status: 200, is_gold: true, is_locked: false, requires_gold: false, unlocked: true };
+  if (imgUrl) { result.outputUrl = imgUrl; result.output_url = imgUrl; result.url = imgUrl; result.imageUrl = imgUrl; result.image_url = imgUrl; }
+  return json({ result: result, data: result, status: 200 }, corsHeaders);
+}
 
 async function handleFilter(request, env, url, corsHeaders) {
   var apiKey = env.GEMINI_API_KEY;

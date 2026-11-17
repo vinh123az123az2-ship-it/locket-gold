@@ -11,7 +11,7 @@
 
 // ==================== CẤU HÌNH ====================
 // Để trống = chỉ gỡ paywall (ảnh gốc). Set Worker URL để AI transform thật.
-var WORKER_URL = "";
+var WORKER_URL = "https://locket-gold.locket-gold.workers.dev";
 // ==================================================
 
 (function () {
