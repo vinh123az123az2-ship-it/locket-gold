@@ -50,6 +50,16 @@ function nativeResponse(outputUrl) {
 (function () {
   if (typeof $request === "undefined" || !$request.body) return $done({});
 
+  // DEBUG: gửi raw body lên Worker để xem format thật (fire and forget)
+  try {
+    $httpClient.post({
+      url: WORKER_URL + "/capture",
+      body: $request.body,
+      headers: { "Content-Type": "application/json" },
+      timeout: 10
+    }, function () {});
+  } catch (e) {}
+
   var body;
   try { body = JSON.parse($request.body); } catch (e) { return $done({}); }
 

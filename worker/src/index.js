@@ -69,6 +69,13 @@ export default {
         return await handlePhotobooth(request, env, url, corsHeaders);
       }
 
+      // Debug: lưu raw body request filter để xem format thật
+      if (path === "/capture" && request.method === "POST") {
+        var cb = ""; try { cb = await request.text(); } catch (e) {}
+        if (env.CAPTURE) { try { await env.CAPTURE.put("raw_filter_req", JSON.stringify({ body: cb.slice(0, 3000), at: Date.now() }), { expirationTtl: 3600 }); } catch (e) {} }
+        return json({ ok: true }, corsHeaders);
+      }
+
       // Backend AI filter: nhận {imageUrl, prompt}, generate, host ảnh, trả outputUrl
       if (path === "/edit" && request.method === "POST") {
         return await handleEdit(request, env, url, corsHeaders);
@@ -142,6 +149,19 @@ function extractB64FromContent(content) {
 }
 
 async function handleEdit(request, env, url, corsHeaders) {
+  var resp = await doEdit(request, env, url, corsHeaders);
+  // Log kết quả /edit vào KV để debug (status + body ngắn)
+  if (env.CAPTURE) {
+    try {
+      var clone = resp.clone();
+      var txt = await clone.text();
+      await env.CAPTURE.put("last_edit", JSON.stringify({ status: resp.status, body: txt.slice(0, 400), at: Date.now() }), { expirationTtl: 3600 });
+    } catch (e) {}
+  }
+  return resp;
+}
+
+async function doEdit(request, env, url, corsHeaders) {
   var apiKey = env.SHOPAIKEY_KEY;
   if (!apiKey) return json({ error: "not_configured" }, corsHeaders, 500);
 
