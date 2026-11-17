@@ -127,6 +127,52 @@ if (url.includes('changeProfileInfo')) {
       })
     }
   });
+} else if (url.includes('generateFilteredImage')) {
+  // 🎨 FIX AI FILTER: ép status 200, gỡ paywall 402/403, đảm bảo outputUrl
+  // (locket_profile.js giành match endpoint này nên phải xử lý tại đây)
+  let aiBody = (typeof $response !== 'undefined' && $response && $response.body) ? $response.body : '{}';
+  try {
+    let obj = JSON.parse(aiBody);
+    delete obj.error;
+    delete obj.errors;
+
+    if (obj.result) {
+      delete obj.result.error;
+      delete obj.result.errors;
+      obj.result.is_locked = false;
+      obj.result.requires_gold = false;
+      obj.result.unlocked = true;
+      obj.result.is_gold = true;
+      obj.result.status = 200;
+    } else {
+      obj.result = { status: 200, is_gold: true, is_locked: false, requires_gold: false, unlocked: true };
+    }
+
+    // Nếu server không trả ảnh (402), lấy URL ảnh gốc từ request làm fallback
+    let fallbackUrl = '';
+    if (typeof $request !== 'undefined' && $request && $request.body) {
+      let m = $request.body.match(/https?:\/\/[^"'\s\\]+\.(jpg|jpeg|png|webp)[^"'\s\\]*/i) ||
+              $request.body.match(/https?:\/\/firebasestorage\.googleapis\.com\/[^"'\s\\]+/i) ||
+              $request.body.match(/https?:\/\/[^"'\s\\]*locket[^"'\s\\]*/i);
+      if (m) fallbackUrl = m[0].replace(/\\u0026/g, '&').replace(/\\/g, '');
+    }
+    let hasUrl = obj.result.outputUrl || obj.result.output_url || obj.result.url || obj.result.imageUrl || obj.result.image_url;
+    if (!hasUrl && fallbackUrl) {
+      obj.result.outputUrl = fallbackUrl;
+      obj.result.output_url = fallbackUrl;
+      obj.result.url = fallbackUrl;
+      obj.result.imageUrl = fallbackUrl;
+      obj.result.image_url = fallbackUrl;
+    }
+
+    aiBody = JSON.stringify(obj);
+  } catch (e) {}
+
+  $done({
+    status: 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' },
+    body: aiBody
+  });
 } else {
   let body = (typeof $response !== 'undefined' && $response && $response.body) ? $response.body : null;
   if (body) {
