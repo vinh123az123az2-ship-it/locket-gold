@@ -2,6 +2,10 @@ name = "locket-gold"
 main = "src/index.js"
 compatibility_date = "2024-09-01"
 
+[[kv_namespaces]]
+binding = "CAPTURE"
+id = "28b76e3aaf764576bcc972add08a30d8"
+
 # KV namespace cho photobooth session storage
 # Tạo: npx wrangler kv namespace create KV_STORE
 # Rồi paste ID vào đây

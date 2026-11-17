@@ -1,59 +1,76 @@
 /**
- * LOCKET GOLD VIP - AI FILTER PAYWALL KILLER (REQUEST MOCK)
+ * LOCKET GOLD VIP - AI FILTER ENGINE (generateFilteredImage)
  * Tác giả: langtucamau
  *
- * Chặn thẳng REQUEST generateFilteredImage, KHÔNG cho tới server Locket
- * (server trả 402 vì JWT entitlement rỗng). Trả mock 200 với outputUrl =
- * ảnh gốc từ request → app nhận kết quả hợp lệ, hết đòi Gold.
+ * Chặn request generateFilteredImage của Locket, đọc ảnh gốc + prompt mà app
+ * gửi, chuyển sang Worker để Gemini generate, trả ảnh AI đã host về cho app.
  *
- * Nếu WORKER_URL được set, redirect sang Worker để AI transform thật.
+ * Flow:
+ *   App chụp filter → POST generateFilteredImage {imageUrl, prompt}
+ *   → script đọc → POST Worker /edit → Worker generate + host ảnh
+ *   → trả {result:{outputUrl}} → app hiển thị ảnh AI
  */
 
-// ==================== CẤU HÌNH ====================
-// Để trống = chỉ gỡ paywall (ảnh gốc). Set Worker URL để AI transform thật.
 var WORKER_URL = "https://locket-gold.locket-gold.workers.dev";
-// ==================================================
 
-(function () {
-  if (typeof $request === "undefined") return $done({});
+var IMG_FIELDS = ["imageUrl", "image_url", "inputUrl", "input_url", "url", "downloadUrl", "download_url"];
+var PROMPT_FIELDS = ["prompt", "text_prompt", "instruction"];
 
-  var body = $request.body || "";
-
-  // Trích URL ảnh gốc từ request để làm outputUrl
-  var imgUrl = "";
-  var m = body.match(/https?:\/\/firebasestorage\.googleapis\.com\/[^"'\s\\]+/i) ||
-          body.match(/https?:\/\/[^"'\s\\]+\.(jpg|jpeg|png|webp)[^"'\s\\]*/i) ||
-          body.match(/https?:\/\/[^"'\s\\]*locket[^"'\s\\]*/i);
-  if (m) imgUrl = m[0].replace(/\\u0026/g, "&").replace(/\\\//g, "/").replace(/\\/g, "");
-
-  // Nếu có Worker → redirect request sang Worker xử lý AI thật
-  if (WORKER_URL) {
-    var headers = Object.assign({}, $request.headers || {});
-    headers["Host"] = WORKER_URL.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-    return $done({ url: WORKER_URL + "/generateFilteredImage", headers: headers });
+function pick(body, fields) {
+  var containers = [body, body && body.data];
+  for (var c = 0; c < containers.length; c++) {
+    var obj = containers[c];
+    if (!obj || typeof obj !== "object") continue;
+    for (var i = 0; i < fields.length; i++) {
+      var v = obj[fields[i]];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
   }
+  return "";
+}
 
-  // Không có Worker → mock 200 với ảnh gốc (gỡ paywall, ảnh chưa đổi style)
-  var result = {
-    status: 200,
-    is_gold: true,
-    is_locked: false,
-    requires_gold: false,
-    unlocked: true
-  };
-  if (imgUrl) {
-    result.outputUrl = imgUrl;
-    result.output_url = imgUrl;
-    result.url = imgUrl;
-    result.imageUrl = imgUrl;
-    result.image_url = imgUrl;
-  }
-
-  $done({
+function nativeResponse(outputUrl) {
+  var urls = { outputUrl: outputUrl, output_url: outputUrl, url: outputUrl, imageUrl: outputUrl, image_url: outputUrl };
+  return {
     response: {
       status: 200,
       headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ result: result, data: result, status: 200 })
+      body: JSON.stringify({
+        result: {
+          outputUrl: outputUrl, output_url: outputUrl, url: outputUrl,
+          imageUrl: outputUrl, image_url: outputUrl, status: 200, data: urls
+        },
+        data: urls,
+        status: 200
+      })
     }
+  };
+}
+
+(function () {
+  if (typeof $request === "undefined" || !$request.body) return $done({});
+
+  var body;
+  try { body = JSON.parse($request.body); } catch (e) { return $done({}); }
+
+  var imageUrl = pick(body, IMG_FIELDS);
+  var prompt = pick(body, PROMPT_FIELDS);
+  if (!imageUrl) return $done({});
+
+  $httpClient.post({
+    url: WORKER_URL + "/edit",
+    body: JSON.stringify({ imageUrl: imageUrl, prompt: prompt }),
+    headers: { "Content-Type": "application/json" },
+    timeout: 55
+  }, function (error, response, data) {
+    if (!error && response && response.status === 200 && data) {
+      try {
+        var r = JSON.parse(data);
+        var out = r.outputUrl || r.output_url || r.url || "";
+        if (out) { $done(nativeResponse(out)); return; }
+      } catch (e) {}
+    }
+    // Worker lỗi → để request gốc đi tiếp (app tự xử lý / báo lỗi riêng)
+    $done({});
   });
 })();

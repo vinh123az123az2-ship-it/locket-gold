@@ -56,6 +56,7 @@ export default {
         return json({ status: "ok", filters: Object.keys(FILTER_PROMPTS).length }, corsHeaders);
       }
 
+
       if (path === "/filters") {
         return json({ filters: Object.keys(FILTER_PROMPTS) }, corsHeaders);
       }
@@ -68,8 +69,14 @@ export default {
         return await handlePhotobooth(request, env, url, corsHeaders);
       }
 
-      if (path === "/generateFilteredImage") {
-        return await handleGenerateFilteredImage(request, env, url, corsHeaders);
+      // Backend AI filter: nhận {imageUrl, prompt}, generate, host ảnh, trả outputUrl
+      if (path === "/edit" && request.method === "POST") {
+        return await handleEdit(request, env, url, corsHeaders);
+      }
+
+      // Serve ảnh đã generate (host trên KV)
+      if (path.indexOf("/img/") === 0) {
+        return await serveImage(request, env, path, corsHeaders);
       }
 
       return json({ error: "not found" }, corsHeaders, 404);
@@ -79,28 +86,87 @@ export default {
   }
 };
 
-async function handleGenerateFilteredImage(request, env, url, corsHeaders) {
-  // DEBUG: log full request để biết format, rồi trả mock
-  var reqBody = "";
-  try { reqBody = await request.text(); } catch (e) {}
-  console.log("=== generateFilteredImage REQUEST ===");
-  console.log("method:", request.method);
-  console.log("url:", request.url);
-  console.log("query:", url.search);
-  var hdrs = {};
-  for (var pair of request.headers.entries()) { hdrs[pair[0]] = pair[1]; }
-  console.log("headers:", JSON.stringify(hdrs));
-  console.log("body:", reqBody);
-  console.log("=== END ===");
+var IMG_HOST_FIELDS = ["imageUrl", "image_url", "inputUrl", "input_url", "url", "downloadUrl", "download_url"];
+var PROMPT_FIELDS = ["prompt", "text_prompt", "instruction"];
+var ALLOWED_IMG_HOSTS = ["firebasestorage.googleapis.com", "storage.googleapis.com", "locketcamera.com", "cdn.locketcamera.com"];
 
-  // Trả mock để app không lỗi (tạm thời)
-  var imgUrl = "";
-  var m = reqBody.match(/https?:\/\/firebasestorage\.googleapis\.com\/[^"'\s\\]+/i) ||
-          reqBody.match(/https?:\/\/[^"'\s\\]+\.(jpg|jpeg|png|webp)[^"'\s\\]*/i);
-  if (m) imgUrl = m[0].replace(/\\u0026/g, "&").replace(/\\\//g, "/").replace(/\\/g, "");
-  var result = { status: 200, is_gold: true, is_locked: false, requires_gold: false, unlocked: true };
-  if (imgUrl) { result.outputUrl = imgUrl; result.output_url = imgUrl; result.url = imgUrl; result.imageUrl = imgUrl; result.image_url = imgUrl; }
-  return json({ result: result, data: result, status: 200 }, corsHeaders);
+function pickField(body, fields) {
+  var containers = [body, body && body.data];
+  for (var c = 0; c < containers.length; c++) {
+    var obj = containers[c];
+    if (!obj || typeof obj !== "object") continue;
+    for (var i = 0; i < fields.length; i++) {
+      var v = obj[fields[i]];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  }
+  return "";
+}
+
+function isAllowedImageUrl(u) {
+  try {
+    var h = new URL(u);
+    if (h.protocol !== "https:") return false;
+    for (var i = 0; i < ALLOWED_IMG_HOSTS.length; i++) {
+      if (h.hostname === ALLOWED_IMG_HOSTS[i] || h.hostname.endsWith("." + ALLOWED_IMG_HOSTS[i])) return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+var FAL_EDIT_URL = "https://fal.run/fal-ai/nano-banana/edit";
+
+async function handleEdit(request, env, url, corsHeaders) {
+  var falKey = env.FAL_KEY;
+  if (!falKey) return json({ error: "not_configured" }, corsHeaders, 500);
+
+  var body;
+  try { body = await request.json(); } catch (e) { return json({ error: "invalid_json" }, corsHeaders, 400); }
+
+  var imageUrl = pickField(body, IMG_HOST_FIELDS);
+  var prompt = pickField(body, PROMPT_FIELDS);
+  if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 400);
+  if (!isAllowedImageUrl(imageUrl)) return json({ error: "unsafe_image_host" }, corsHeaders, 400);
+  if (!prompt) prompt = "Apply a subtle cinematic photo enhancement. Keep faces, pose and background unchanged.";
+
+  // fal.ai nano-banana edit: tự tải ảnh từ URL + host output → trả URL ảnh AI
+  var falResp;
+  try {
+    falResp = await fetch(FAL_EDIT_URL, {
+      method: "POST",
+      headers: { "Authorization": "Key " + falKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt, image_urls: [imageUrl], num_images: 1, output_format: "jpeg" })
+    });
+  } catch (e) { return json({ error: "provider_unavailable" }, corsHeaders, 502); }
+
+  if (!falResp.ok) {
+    var et = "";
+    try { et = await falResp.text(); } catch (e) {}
+    return json({ error: "provider_rejected_request", detail: et.slice(0, 200) }, corsHeaders, 502);
+  }
+
+  var fd;
+  try { fd = await falResp.json(); } catch (e) { return json({ error: "invalid_provider_response" }, corsHeaders, 502); }
+  var outputUrl = fd && fd.images && fd.images[0] && fd.images[0].url ? fd.images[0].url : "";
+  if (!outputUrl) return json({ error: "invalid_generated_image" }, corsHeaders, 502);
+
+  return json({
+    outputUrl: outputUrl, output_url: outputUrl, url: outputUrl,
+    imageUrl: outputUrl, image_url: outputUrl, status: 200,
+    expiresInSeconds: 600, sourceImageCount: 1, slotCount: 1
+  }, corsHeaders);
+}
+
+async function serveImage(request, env, path, corsHeaders) {
+  if (!env.CAPTURE) return new Response("storage unavailable", { status: 500 });
+  var id = path.replace("/img/", "").replace(/\.jpg$/, "");
+  var b64 = await env.CAPTURE.get("img:" + id);
+  if (!b64) return new Response("not found", { status: 404 });
+  var bytes = base64ToArrayBuffer(b64);
+  return new Response(bytes, {
+    status: 200,
+    headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" }
+  });
 }
 
 async function handleFilter(request, env, url, corsHeaders) {
