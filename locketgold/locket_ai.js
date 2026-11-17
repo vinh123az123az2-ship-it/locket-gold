@@ -1,30 +1,36 @@
 /**
- * LOCKET GOLD VIP - AI FILTER ENGINE
+ * LOCKET GOLD VIP - AI FILTER INTERCEPTOR
  * Tác giả: langtucamau
  *
- * Chặn ảnh upload (moments/upload/post), gửi qua Cloudflare Worker
- * để AI transform, rồi thay thế body bằng ảnh đã xử lý.
+ * Chặn ảnh upload (moments/upload/post), gửi raw bytes qua Cloudflare
+ * Worker để AI transform, nhận raw JPEG bytes về, thay thế ảnh gốc.
  *
- * Cách dùng:
- *   - Đổi FILTER_ID để chọn filter: gta_v, anime_art, grab_rider, etc.
- *   - Set "off" để tắt AI filter, ảnh gửi bình thường.
- *   - Hoặc dùng $persistentStore: script đọc key "ai_filter" nếu có.
+ * binary-body-mode=true → $request.body là raw image data.
  *
- * binary-body-mode=true trong config → $request.body là raw binary data
+ * Chọn filter: đổi FILTER_ID, hoặc $persistentStore.write("gta_v","ai_filter").
+ * Tắt: FILTER_ID = "off".
+ *
+ * Filter khả dụng: gta_v, anime_art, grab_rider, shopee_food, cyberpunk,
+ *   vintage_film, barbie, squid_game, minecraft, watercolor, neon, ...
  */
 
 // ==================== CẤU HÌNH ====================
 var WORKER_URL = "https://locket-gold.locket-gold.workers.dev";
-// Đổi filter tại đây hoặc dùng $persistentStore.write("gta_v", "ai_filter")
 var FILTER_ID = "off";
 // ==================================================
 
 (function() {
-  if (typeof $request === "undefined") return $done({});
+  if (typeof $request === "undefined" || !$request.body) {
+    return $done({});
+  }
 
-  var url = $request.url || "";
-  var body = $request.body;
-  var contentType = ($request.headers["Content-Type"] || $request.headers["content-type"] || "").toLowerCase();
+  var headers = $request.headers || {};
+  var contentType = (headers["Content-Type"] || headers["content-type"] || "").toLowerCase();
+
+  // Bỏ qua gói JSON (caption, like, comment)
+  if (contentType.includes("application/json")) {
+    return $done({});
+  }
 
   var filter = FILTER_ID;
   try {
@@ -36,36 +42,20 @@ var FILTER_ID = "off";
     return $done({});
   }
 
-  if (contentType.includes("application/json")) {
-    return $done({});
-  }
-
-  if (!body || body.length < 100) {
-    return $done({});
-  }
-
-  var workerUrl = WORKER_URL + "/filter?filter_id=" + encodeURIComponent(filter);
+  var serverUrl = WORKER_URL + "/filter?filter_id=" + encodeURIComponent(filter);
 
   $httpClient.post({
-    url: workerUrl,
-    body: body,
+    url: serverUrl,
+    body: $request.body,
     headers: {
       "Content-Type": contentType || "image/jpeg"
     },
-    timeout: 30
+    timeout: 40
   }, function(error, response, data) {
     if (!error && response && response.status === 200 && data) {
-      try {
-        var result = JSON.parse(data);
-        if (result.outputUrl && result.outputUrl.indexOf("data:") === 0) {
-          var b64 = result.outputUrl.split(",")[1];
-          if (b64) {
-            $done({ body: b64, headers: { "Content-Type": "image/jpeg" } });
-            return;
-          }
-        }
-      } catch(e) {}
+      $done({ body: data });
+    } else {
+      $done({});
     }
-    $done({});
   });
 })();

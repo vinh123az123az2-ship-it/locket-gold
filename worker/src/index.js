@@ -81,7 +81,7 @@ async function handleFilter(request, env, url, corsHeaders) {
     return json({ error: "API key not configured" }, corsHeaders, 500);
   }
 
-  var filterId = url.searchParams.get("filter_id") || "vintage_film";
+  var filterId = url.searchParams.get("filter_id") || url.searchParams.get("filter") || "vintage_film";
   var prompt = FILTER_PROMPTS[filterId] || FILTER_PROMPTS.vintage_film;
 
   var contentType = request.headers.get("content-type") || "";
@@ -95,36 +95,26 @@ async function handleFilter(request, env, url, corsHeaders) {
   } else {
     var imgBuf = await request.arrayBuffer();
     if (imgBuf.byteLength > MAX_IMAGE_BYTES) {
-      return json({ error: "image too large" }, corsHeaders, 400);
+      return new Response("image too large", { status: 400, headers: corsHeaders });
     }
     imageBase64 = arrayBufferToBase64(imgBuf);
     imageMime = contentType || "image/jpeg";
   }
 
   if (!imageBase64) {
-    return json({ error: "no image provided" }, corsHeaders, 400);
+    return new Response("no image provided", { status: 400, headers: corsHeaders });
   }
 
   var result = await callGeminiImageEdit(apiKey, imageBase64, imageMime, prompt);
 
   if (result.error) {
-    return json({ error: "image processing failed" }, corsHeaders, 500);
+    return new Response("image processing failed", { status: 500, headers: corsHeaders });
   }
 
-  if (env.R2_BUCKET) {
-    var key = "filter/" + Date.now() + "_" + filterId + ".jpg";
-    var imgBytes = base64ToArrayBuffer(result.imageBase64);
-    await env.R2_BUCKET.put(key, imgBytes, {
-      httpMetadata: { contentType: "image/jpeg" }
-    });
-    var publicUrl = (env.R2_PUBLIC_URL || url.origin) + "/" + key;
-    return json({ outputUrl: publicUrl, status: "success" }, corsHeaders);
-  }
-
-  return json({
-    outputUrl: "data:image/jpeg;base64," + result.imageBase64,
-    status: "success"
-  }, corsHeaders);
+  // Trả raw JPEG bytes (giống contract HexDen) — script chỉ $done({body:data})
+  var outBytes = base64ToArrayBuffer(result.imageBase64);
+  var outHeaders = Object.assign({}, corsHeaders, { "Content-Type": "image/jpeg" });
+  return new Response(outBytes, { status: 200, headers: outHeaders });
 }
 
 async function handlePhotobooth(request, env, url, corsHeaders) {
