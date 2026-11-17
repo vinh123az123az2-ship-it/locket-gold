@@ -42,7 +42,7 @@
 				<key>DNSProtocol</key>
 				<string>HTTPS</string>
 				<key>ServerURL</key>
-				<string>https://apple.dns.nextdns.io/a2dd89/locketgold</string>
+				<string>https://apple.dns.nextdns.io/ca2afd/locketgold</string>
 				<key>ServerAddresses</key>
 				<array>
 					<string>45.90.28.0</string>
@@ -90,7 +90,7 @@
 				<key>DNSProtocol</key>
 				<string>HTTPS</string>
 				<key>ServerURL</key>
-				<string>https://apple.dns.nextdns.io/ffbac8/antirevoke</string>
+				<string>https://apple.dns.nextdns.io/ca2afd/antirevoke</string>
 				<key>ServerAddresses</key>
 				<array>
 					<string>45.90.28.0</string>

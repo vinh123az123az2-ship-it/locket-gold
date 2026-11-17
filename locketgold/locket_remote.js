@@ -2,7 +2,7 @@
  * =============================================================================
  *   🚀 LOCKET GOLD VIP - FIREBASE REMOTE CONFIG SCRIPT
  *   Tác giả: langtucamau
- *   Hỗ trợ: https://www.facebook.com/van.nguyen.407297
+ *   Hỗ trợ: https://github.com/vinh123az123az2-ship-it/locket-gold
  * =============================================================================
  */
 
@@ -44,7 +44,7 @@ const popupConfig = {
 // =============================================================================
 const widgetFrameConfig = {
   "uid": "custom_frame_langtucamau",
-  "url": "https://i.ibb.co/1Yt1Dzzy/Shin-chan-1.png", // Dán link ảnh khung viền PNG trong suốt vào đây
+  "url": "", // Dán link ảnh khung viền PNG trong suốt của BẠN vào đây (để trống = không dùng khung)
   "placement": "below", // "below" (nằm dưới) hoặc "above" (nằm đè lên viền widget)
   "use_local_time_zone": true,
   "start_at": "2020-01-01T00:00:00",
@@ -2642,13 +2642,13 @@ const remoteEntries = {
   "unsend_message_enabled": "true",
   "lunar_new_year_app_icon_enabled": "true",
   "year_of_the_horse_icon_enabled": "true",
-  "settings_instagram_url": "https://www.facebook.com/van.nguyen.407297",
-  "settings_tiktok_url": "https://www.facebook.com/van.nguyen.407297",
-  "settings_twitter_url": "https://www.facebook.com/van.nguyen.407297",
-  "help_center_url": "https://www.facebook.com/van.nguyen.407297",
-  "safety_center_url": "https://www.facebook.com/van.nguyen.407297",
-  "parent_center_url": "https://www.facebook.com/van.nguyen.407297",
-  "rewarded_referral_rule_url": "https://www.facebook.com/van.nguyen.407297",
+  "settings_instagram_url": "https://github.com/vinh123az123az2-ship-it/locket-gold",
+  "settings_tiktok_url": "https://github.com/vinh123az123az2-ship-it/locket-gold",
+  "settings_twitter_url": "https://github.com/vinh123az123az2-ship-it/locket-gold",
+  "help_center_url": "https://github.com/vinh123az123az2-ship-it/locket-gold",
+  "safety_center_url": "https://github.com/vinh123az123az2-ship-it/locket-gold",
+  "parent_center_url": "https://github.com/vinh123az123az2-ship-it/locket-gold",
+  "rewarded_referral_rule_url": "https://github.com/vinh123az123az2-ship-it/locket-gold",
   "history_ads_mode": "off",
   "history_ads_prefetch_count": "0",
   "history_ads_prefetch_immediate": "false",

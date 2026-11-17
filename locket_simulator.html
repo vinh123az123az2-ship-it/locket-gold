@@ -296,7 +296,7 @@
 
                 // Gọi tới máy chủ Render AI của bạn
                 const filterParam = currentFilter === 'none' ? 'vintage_film' : currentFilter;
-                const resp = await fetch(`https://locket-gold-m1xo.onrender.com/process?filter=${filterParam}`, {
+                const resp = await fetch(`https://locket-gold.locket-gold.workers.dev/filter?filter_id=${filterParam}`, {
                     method: 'POST',
                     body: blobToSend,
                     headers: { 'Content-Type': 'image/jpeg' }
