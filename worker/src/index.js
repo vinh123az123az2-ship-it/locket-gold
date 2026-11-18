@@ -437,6 +437,7 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) 
   var filterType = pickField(body, ["filterType", "filter_type"]) || "normal";
   var id = crypto.randomUUID().replace(/-/g, "");
   var token = await signImgId(env, id);
+  if (!token) return json({ error: "img_signing_unavailable" }, corsHeaders, 500);
   // Generate nền; nếu không có ctx (gọi thủ công) thì await luôn
   if (ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(generateToId(env, id, imageUrl, prompt));
@@ -450,8 +451,12 @@ var IMG_POLL_MAX_MS = 45000;
 var IMG_POLL_INTERVAL_MS = 800;
 
 // HMAC id để chống spam /img: chỉ id Worker tự phát (token khớp) mới được poll.
+// Dùng IMG_SIGNING_KEY (server-only, KHÔNG ship client). Fallback WORKER_SECRET
+// tạm thời — nhưng secret này nằm trong script public nên cần set IMG_SIGNING_KEY
+// riêng để token không forge được. Không có key nào → null (chặn).
 async function signImgId(env, id) {
-  var secret = env.WORKER_SECRET || "locket-gold-img";
+  var secret = env.IMG_SIGNING_KEY || env.WORKER_SECRET;
+  if (!secret) return null;
   var key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   var sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("img:" + id));
   var b = new Uint8Array(sig), hex = "";
@@ -475,7 +480,7 @@ async function serveImage(request, env, path, corsHeaders) {
   if (!m) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
   var id = m[1], token = m[2];
   var expected = await signImgId(env, id);
-  if (!timingSafeHex(token, expected)) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
+  if (!expected || !timingSafeHex(token, expected)) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
 
   var deadline = Date.now() + IMG_POLL_MAX_MS;
   while (true) {
