@@ -36,6 +36,16 @@ const FILTER_PROMPTS = {
 const GEMINI_EDIT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
+// Route gọi API trả phí → bắt buộc X-Worker-Secret. /img/, /health, /filters mở (read-only)
+const PAID_ROUTES = { "/generateFilteredImage": 1, "/edit": 1, "/filter": 1, "/photobooth": 1 };
+
+function timingSafeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  var out = 0;
+  for (var i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return out === 0;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -49,6 +59,14 @@ export default {
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
+    }
+
+    // Gate các route tốn tiền (gọi API trả phí): yêu cầu X-Worker-Secret khớp
+    if (PAID_ROUTES[path]) {
+      var provided = request.headers.get("X-Worker-Secret") || "";
+      if (!env.WORKER_SECRET || !timingSafeEqual(provided, env.WORKER_SECRET)) {
+        return json({ error: "unauthorized" }, corsHeaders, 401);
+      }
     }
 
     try {
@@ -86,15 +104,12 @@ export default {
         return await handleGenerateFilteredImage(request, env, url, corsHeaders);
       }
 
-      // TEMP self-test: gọi thẳng shopaikey với ảnh nhúng, báo có ảnh hay không
-      if (path === "/selftest") {
-        return await handleSelfTest(env, corsHeaders);
-      }
-
-      // Serve ảnh đã generate (host trên KV)
+      // Serve ảnh đã generate (host trên KV) — read-only, mở để app tải ảnh
       if (path.indexOf("/img/") === 0) {
         return await serveImage(request, env, path, corsHeaders);
       }
+
+      // (route /selftest đã gỡ sau khi xác nhận model shopaikey ra ảnh OK)
 
       return json({ error: "not found" }, corsHeaders, 404);
     } catch (err) {
@@ -157,54 +172,6 @@ function extractB64FromContent(content) {
   // dạng ![image](data:image/...;base64,XXXX)
   var m = content.match(/data:image\/[a-z]+;base64,([A-Za-z0-9+/=]+)/i);
   return m ? m[1] : "";
-}
-
-// Ảnh test nhúng (64x64 JPEG) để tự kiểm tra model shopaikey có trả ảnh không
-var SELFTEST_JPEG_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABAAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDPooor3TygooooAKKKKACiiigAooooA3vC/h9taeR5JGitoiAzBclj6Dt079sjjmvRtP0uy08AWdtFEQCNwGWIJzgseT+dGj2Y0/S7a1AUGNAG2kkFurEZ9yauV8FmOY1MVUaT9zoj6PC4WNGKbXvFa9sbW+TZeW8UwAIG9clc9cHqPwrgPFnhkaWhvLN2a1Z8GMgkxZ6c9xnjn2616RTJ4kngkhlXdHIpRhnGQRg1ngcwq4Saafu9UXiMNCtF3Wvc8SoqW7ga1upreQqXido2K9CQccVFX6AmpK6PmmraMKKKKYj2fTbtb6wt7pNoEqBsBt209xn2PH4VZrzfwh4jXSw9rfGVrViChHPlHPPHXHOePTpzXosE0U8SyQSJLG3R0YMD+Ir8+zDAzwlVpr3ejPpsNiI1oJ316j6bI6xozyMqooJZmOAAO5okdY0Z5GVUUEszHAAHc1w3jDxNFcQPYaa7kFtssykbWXH3R6gnvx07g1ng8HUxdRQgtOr7FV68aMeaRyN/cfa764uNuzzpGk25zjJzjNQUUV+hxiopJdD5hu7uwoooqhBUttcz2rl7aaWFyMFo2Kkj04qKik0pKzGnbVE91eXN3t+1XE023O3zHLYz1xmoKKKUYqKslYG29WFFFFUI/9k=";
-
-async function handleSelfTest(env, corsHeaders) {
-  var apiKey = env.SHOPAIKEY_KEY;
-  if (!apiKey) return json({ error: "no_key" }, corsHeaders, 500);
-  var dataUrl = "data:image/jpeg;base64," + SELFTEST_JPEG_B64;
-  var started = Date.now();
-  var resp;
-  try {
-    resp = await fetch(SHOPAIKEY_CHAT_URL, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: SHOPAIKEY_MODEL,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: "Add a warm cinematic film look to this photo. Output the edited image only." },
-            { type: "image_url", image_url: { url: dataUrl } }
-          ]
-        }]
-      })
-    });
-  } catch (e) {
-    return json({ stage: "fetch_failed", error: String(e) }, corsHeaders, 502);
-  }
-  var elapsedMs = Date.now() - started;
-  var raw;
-  try { raw = await resp.json(); } catch (e) {
-    return json({ stage: "bad_json", httpStatus: resp.status, elapsedMs }, corsHeaders, 502);
-  }
-  var msg = raw && raw.choices && raw.choices[0] && raw.choices[0].message ? raw.choices[0].message : null;
-  var content = msg ? msg.content : null;
-  var b64 = extractB64FromContent(typeof content === "string" ? content : "");
-  var hasImageField = !!(msg && msg.images && msg.images.length);
-  return json({
-    model: SHOPAIKEY_MODEL,
-    httpStatus: resp.status,
-    elapsedMs: elapsedMs,
-    hasInlineImage: !!b64,
-    inlineImageBytes: b64 ? b64.length : 0,
-    hasImagesField: hasImageField,
-    textSnippet: typeof content === "string" ? content.slice(0, 300) : JSON.stringify(content).slice(0, 300),
-    apiError: raw && raw.error ? raw.error : null
-  }, corsHeaders);
 }
 
 async function handleEdit(request, env, url, corsHeaders) {
