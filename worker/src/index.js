@@ -436,34 +436,48 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) 
 
   var filterType = pickField(body, ["filterType", "filter_type"]) || "normal";
   var id = crypto.randomUUID().replace(/-/g, "");
-  // Marker pending để /img chỉ poll cho id thật (chống spam giữ Worker chạy)
-  try { await env.CAPTURE.put("pending:" + id, "1", { expirationTtl: 120 }); } catch (e) {}
+  var token = await signImgId(env, id);
   // Generate nền; nếu không có ctx (gọi thủ công) thì await luôn
   if (ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(generateToId(env, id, imageUrl, prompt));
   } else {
     await generateToId(env, id, imageUrl, prompt);
   }
-  return nativeFilterResponse(url.origin + "/img/" + id + ".jpg", imageUrl, prompt, filterType, corsHeaders);
+  return nativeFilterResponse(url.origin + "/img/" + id + token + ".jpg", imageUrl, prompt, filterType, corsHeaders);
 }
 
 var IMG_POLL_MAX_MS = 45000;
 var IMG_POLL_INTERVAL_MS = 800;
-var IMG_POLL_GRACE_MS = 10000;
 
-// Serve ảnh: chờ generate nền xong (poll KV tới IMG_POLL_MAX_MS).
-// Chỉ poll cho id hợp lệ + đang pending → chặn spam GET giữ Worker chạy.
+// HMAC id để chống spam /img: chỉ id Worker tự phát (token khớp) mới được poll.
+async function signImgId(env, id) {
+  var secret = env.WORKER_SECRET || "locket-gold-img";
+  var key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  var sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("img:" + id));
+  var b = new Uint8Array(sig), hex = "";
+  for (var i = 0; i < b.length; i++) hex += b[i].toString(16).padStart(2, "0");
+  return hex.slice(0, 24);
+}
+function timingSafeHex(a, b) {
+  if (a.length !== b.length) return false;
+  var out = 0;
+  for (var i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return out === 0;
+}
+
+// Serve ảnh: verify token HMAC trước (id bịa → 404 ngay, không poll), rồi chờ
+// generate nền (poll KV tới IMG_POLL_MAX_MS). Token hợp lệ = id Worker thật phát,
+// nên poll full mà không cần pending marker (hết phụ thuộc KV read-after-write).
 async function serveImage(request, env, path, corsHeaders) {
   if (!env.CAPTURE) return new Response("storage unavailable", { status: 500 });
-  var id = path.replace("/img/", "").replace(/\.jpg$/, "");
-  if (!/^[0-9a-f]{32}$/.test(id)) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
+  var raw = path.replace("/img/", "").replace(/\.jpg$/, "");
+  var m = raw.match(/^([0-9a-f]{32})([0-9a-f]{24})$/);
+  if (!m) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
+  var id = m[1], token = m[2];
+  var expected = await signImgId(env, id);
+  if (!timingSafeHex(token, expected)) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
 
-  var start = Date.now();
-  var deadline = start + IMG_POLL_MAX_MS;
-  // Grace: KV read-after-write không tức thì (nhất là khác colo). Trong GRACE
-  // đầu, dù chưa thấy pending vẫn chờ (phòng pending/img chưa propagate). Sau
-  // grace mà vẫn không pending → id bịa → 404 (chặn spam giữ Worker).
-  var graceDeadline = start + IMG_POLL_GRACE_MS;
+  var deadline = Date.now() + IMG_POLL_MAX_MS;
   while (true) {
     var v = await env.CAPTURE.get("img:" + id);
     if (v) {
@@ -475,10 +489,6 @@ async function serveImage(request, env, path, corsHeaders) {
         status: 200,
         headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" }
       });
-    }
-    var pending = await env.CAPTURE.get("pending:" + id);
-    if (!pending && Date.now() > graceDeadline) {
-      return new Response("not found", { status: 404, headers: { ...corsHeaders } });
     }
     if (Date.now() > deadline) return new Response("timeout", { status: 504, headers: { ...corsHeaders } });
     await new Promise(function (res) { setTimeout(res, IMG_POLL_INTERVAL_MS); });
