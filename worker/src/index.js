@@ -47,7 +47,7 @@ function timingSafeEqual(a, b) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -109,7 +109,7 @@ export default {
 
       // Request native Locket redirect vào đây (nguyên body gốc)
       if (path === "/generateFilteredImage" && request.method === "POST") {
-        return await handleGenerateFilteredImage(request, env, url, corsHeaders);
+        return await handleGenerateFilteredImage(request, env, url, corsHeaders, ctx);
       }
 
       // Serve ảnh đã generate (host trên KV) — read-only, mở để app tải ảnh
@@ -302,8 +302,8 @@ async function handleEdit(request, env, url, corsHeaders) {
 
 var DEFAULT_PROMPT = "Enhance this photo with a subtle cinematic look. Keep faces, pose and background unchanged.";
 
-// Core dùng chung: tải ảnh gốc → shopaikey generate → host KV → {ok, outputUrl, error}
-async function generateAndHost(env, url, imageUrl, prompt) {
+// Tải ảnh gốc → shopaikey generate → trả { ok, b64, error }. KHÔNG host.
+async function generateImageB64(env, imageUrl, prompt) {
   var apiKey = env.SHOPAIKEY_KEY;
   if (!apiKey) return { ok: false, error: "not_configured" };
   if (!isAllowedImageUrl(imageUrl)) return { ok: false, error: "unsafe_image_host" };
@@ -348,21 +348,37 @@ async function generateAndHost(env, url, imageUrl, prompt) {
   }
 
   var pick = extractImageFromResponse(rd);
-  // LUÔN log cấu trúc response (snippet) để thấy ảnh nằm field nào
   await logGenerate(env, { stage: pick ? "got_image" : "no_image_field", status: resp.status, shape: shapeOf(rd), snippet: safeSnippet(rd) });
-
   if (!pick) return { ok: false, error: "invalid_generated_image" };
 
   var outB64 = pick.b64 || "";
-  if (!outB64 && pick.url) {
-    outB64 = await fetchImageB64(pick.url);
-  }
+  if (!outB64 && pick.url) outB64 = await fetchImageB64(pick.url);
   if (!outB64) return { ok: false, error: "invalid_generated_image" };
+  return { ok: true, b64: outB64 };
+}
 
+// Dùng cho /edit (đồng bộ): generate → host random id → { ok, outputUrl, error }
+async function generateAndHost(env, url, imageUrl, prompt) {
+  var r = await generateImageB64(env, imageUrl, prompt);
+  if (!r.ok) return r;
   if (!env.CAPTURE) return { ok: false, error: "storage_unavailable" };
   var id = crypto.randomUUID().replace(/-/g, "");
-  await env.CAPTURE.put("img:" + id, outB64, { expirationTtl: 600 });
+  await env.CAPTURE.put("img:" + id, r.b64, { expirationTtl: 900 });
   return { ok: true, outputUrl: url.origin + "/img/" + id + ".jpg" };
+}
+
+// Dùng cho native filter (bất đồng bộ): generate nền, lưu img:<id> hoặc marker lỗi
+async function generateToId(env, id, imageUrl, prompt) {
+  try {
+    var r = await generateImageB64(env, imageUrl, prompt);
+    if (r.ok && r.b64) {
+      await env.CAPTURE.put("img:" + id, r.b64, { expirationTtl: 900 });
+    } else {
+      await env.CAPTURE.put("img:" + id, "ERR:" + (r.error || "fail"), { expirationTtl: 300 });
+    }
+  } catch (e) {
+    try { await env.CAPTURE.put("img:" + id, "ERR:exception", { expirationTtl: 300 }); } catch (e2) {}
+  }
 }
 
 function nativeFilterResponse(outputUrl, corsHeaders) {
@@ -384,9 +400,10 @@ async function doEdit(request, env, url, corsHeaders) {
   return nativeFilterResponse(r.outputUrl, corsHeaders);
 }
 
-// Request native generateFilteredImage của Locket được redirect thẳng vào đây.
-// Luôn lưu raw body để học format thật; parse ảnh + filter id → prompt → generate.
-async function handleGenerateFilteredImage(request, env, url, corsHeaders) {
+// Native generateFilteredImage: generate AI mất ~15-18s, vượt timeout của app.
+// Nên trả outputUrl NGAY (<1s), generate ở nền (ctx.waitUntil), lưu img:<id>.
+// App tải /img/<id> — endpoint đó mới chờ ảnh (app kiên nhẫn với tải ảnh hơn API).
+async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) {
   var raw = "";
   try { raw = await request.text(); } catch (e) {}
   if (env.CAPTURE) {
@@ -407,22 +424,41 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders) {
   if (!imageUrl) {
     return json({ error: "image_field_unknown", seenKeys: Object.keys(body).slice(0, 25) }, corsHeaders, 502);
   }
+  if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
-  var r = await generateAndHost(env, url, imageUrl, prompt);
-  if (!r.ok) return json({ error: r.error }, corsHeaders, 502);
-  return nativeFilterResponse(r.outputUrl, corsHeaders);
+  var id = crypto.randomUUID().replace(/-/g, "");
+  // Generate nền; nếu không có ctx (gọi thủ công) thì await luôn
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(generateToId(env, id, imageUrl, prompt));
+  } else {
+    await generateToId(env, id, imageUrl, prompt);
+  }
+  return nativeFilterResponse(url.origin + "/img/" + id + ".jpg", corsHeaders);
 }
 
+var IMG_POLL_MAX_MS = 45000;
+var IMG_POLL_INTERVAL_MS = 800;
+
+// Serve ảnh: chờ generate nền xong (poll KV tới IMG_POLL_MAX_MS).
 async function serveImage(request, env, path, corsHeaders) {
   if (!env.CAPTURE) return new Response("storage unavailable", { status: 500 });
   var id = path.replace("/img/", "").replace(/\.jpg$/, "");
-  var b64 = await env.CAPTURE.get("img:" + id);
-  if (!b64) return new Response("not found", { status: 404 });
-  var bytes = base64ToArrayBuffer(b64);
-  return new Response(bytes, {
-    status: 200,
-    headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" }
-  });
+  var deadline = Date.now() + IMG_POLL_MAX_MS;
+  while (true) {
+    var v = await env.CAPTURE.get("img:" + id);
+    if (v) {
+      if (v.indexOf("ERR:") === 0) {
+        return new Response("generation failed", { status: 502, headers: { ...corsHeaders } });
+      }
+      var bytes = base64ToArrayBuffer(v);
+      return new Response(bytes, {
+        status: 200,
+        headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" }
+      });
+    }
+    if (Date.now() > deadline) return new Response("timeout", { status: 504, headers: { ...corsHeaders } });
+    await new Promise(function (res) { setTimeout(res, IMG_POLL_INTERVAL_MS); });
+  }
 }
 
 async function handleFilter(request, env, url, corsHeaders) {
