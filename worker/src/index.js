@@ -381,20 +381,21 @@ async function generateToId(env, id, imageUrl, prompt) {
   }
 }
 
-// Firebase Callable response chuẩn: { result: <payload> }.
-// GenerateFilteredImagePayload (RE từ binary Locket 2.73) = 4 field required,
-// wire snake_case: output_url, image_url, prompt, filter_type. Thiếu field nào
-// → Swift Decodable throw → app "Failed to generate the filtered image".
-// App download ảnh từ output_url.
+// GenerateFilteredImagePayload (RE binary Locket 2.73) = {outputUrl, imageUrl,
+// prompt, filterType}. Chưa chắc decoder dùng wrapper nào (result/data/none) hay
+// casing nào (camel/snake) → trả phủ HẾT: payload có cả 2 casing, đặt trong
+// result + data + top-level. Swift Decodable bỏ qua key thừa nên an toàn.
 function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, corsHeaders) {
-  return json({
-    result: {
-      output_url: outputUrl,
-      image_url: inputImageUrl || outputUrl,
-      prompt: prompt || "",
-      filter_type: filterType || "normal"
-    }
-  }, corsHeaders);
+  var img = inputImageUrl || outputUrl;
+  var pt = filterType || "normal";
+  var p = prompt || "";
+  var payload = {
+    outputUrl: outputUrl, output_url: outputUrl,
+    imageUrl: img, image_url: img,
+    prompt: p,
+    filterType: pt, filter_type: pt
+  };
+  return json(Object.assign({ result: payload, data: payload }, payload), corsHeaders);
 }
 
 async function doEdit(request, env, url, corsHeaders) {
