@@ -381,11 +381,19 @@ async function generateToId(env, id, imageUrl, prompt) {
   }
 }
 
-function nativeFilterResponse(outputUrl, corsHeaders) {
-  var urls = { outputUrl: outputUrl, output_url: outputUrl, url: outputUrl, imageUrl: outputUrl, image_url: outputUrl };
+// Firebase Callable response chuẩn: { result: <payload> }.
+// GenerateFilteredImagePayload (RE từ binary Locket 2.73) = 4 field required,
+// wire snake_case: output_url, image_url, prompt, filter_type. Thiếu field nào
+// → Swift Decodable throw → app "Failed to generate the filtered image".
+// App download ảnh từ output_url.
+function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, corsHeaders) {
   return json({
-    result: { outputUrl: outputUrl, output_url: outputUrl, url: outputUrl, imageUrl: outputUrl, image_url: outputUrl, status: 200, data: urls },
-    data: urls, status: 200, expiresInSeconds: 600, sourceImageCount: 1, slotCount: 1
+    result: {
+      output_url: outputUrl,
+      image_url: inputImageUrl || outputUrl,
+      prompt: prompt || "",
+      filter_type: filterType || "normal"
+    }
   }, corsHeaders);
 }
 
@@ -397,7 +405,7 @@ async function doEdit(request, env, url, corsHeaders) {
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 400);
   var r = await generateAndHost(env, url, imageUrl, prompt);
   if (!r.ok) return json({ error: r.error }, corsHeaders, 502);
-  return nativeFilterResponse(r.outputUrl, corsHeaders);
+  return nativeFilterResponse(r.outputUrl, imageUrl, prompt, "normal", corsHeaders);
 }
 
 // Native generateFilteredImage: generate AI mất ~15-18s, vượt timeout của app.
@@ -426,6 +434,7 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) 
   }
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
+  var filterType = pickField(body, ["filterType", "filter_type"]) || "normal";
   var id = crypto.randomUUID().replace(/-/g, "");
   // Marker pending để /img chỉ poll cho id thật (chống spam giữ Worker chạy)
   try { await env.CAPTURE.put("pending:" + id, "1", { expirationTtl: 120 }); } catch (e) {}
@@ -435,11 +444,12 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) 
   } else {
     await generateToId(env, id, imageUrl, prompt);
   }
-  return nativeFilterResponse(url.origin + "/img/" + id + ".jpg", corsHeaders);
+  return nativeFilterResponse(url.origin + "/img/" + id + ".jpg", imageUrl, prompt, filterType, corsHeaders);
 }
 
 var IMG_POLL_MAX_MS = 45000;
 var IMG_POLL_INTERVAL_MS = 800;
+var IMG_POLL_GRACE_MS = 10000;
 
 // Serve ảnh: chờ generate nền xong (poll KV tới IMG_POLL_MAX_MS).
 // Chỉ poll cho id hợp lệ + đang pending → chặn spam GET giữ Worker chạy.
@@ -448,7 +458,12 @@ async function serveImage(request, env, path, corsHeaders) {
   var id = path.replace("/img/", "").replace(/\.jpg$/, "");
   if (!/^[0-9a-f]{32}$/.test(id)) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
 
-  var deadline = Date.now() + IMG_POLL_MAX_MS;
+  var start = Date.now();
+  var deadline = start + IMG_POLL_MAX_MS;
+  // Grace: KV read-after-write không tức thì (nhất là khác colo). Trong GRACE
+  // đầu, dù chưa thấy pending vẫn chờ (phòng pending/img chưa propagate). Sau
+  // grace mà vẫn không pending → id bịa → 404 (chặn spam giữ Worker).
+  var graceDeadline = start + IMG_POLL_GRACE_MS;
   while (true) {
     var v = await env.CAPTURE.get("img:" + id);
     if (v) {
@@ -461,9 +476,10 @@ async function serveImage(request, env, path, corsHeaders) {
         headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" }
       });
     }
-    // Chưa có ảnh: chỉ chờ nếu job thật sự đang pending; không thì 404 ngay.
     var pending = await env.CAPTURE.get("pending:" + id);
-    if (!pending) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
+    if (!pending && Date.now() > graceDeadline) {
+      return new Response("not found", { status: 404, headers: { ...corsHeaders } });
+    }
     if (Date.now() > deadline) return new Response("timeout", { status: 504, headers: { ...corsHeaders } });
     await new Promise(function (res) { setTimeout(res, IMG_POLL_INTERVAL_MS); });
   }
