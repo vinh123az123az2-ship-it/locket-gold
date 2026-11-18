@@ -37,7 +37,7 @@ const GEMINI_EDIT_URL = "https://generativelanguage.googleapis.com/v1beta/models
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 // Route gọi API trả phí → bắt buộc X-Worker-Secret. /img/, /health, /filters mở (read-only)
-const PAID_ROUTES = { "/generateFilteredImage": 1, "/edit": 1, "/filter": 1, "/photobooth": 1 };
+const PAID_ROUTES = { "/generateFilteredImage": 1, "/edit": 1, "/filter": 1, "/photobooth": 1, "/models": 1 };
 
 function timingSafeEqual(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
@@ -77,6 +77,14 @@ export default {
 
       if (path === "/filters") {
         return json({ filters: Object.keys(FILTER_PROMPTS) }, corsHeaders);
+      }
+
+      // Debug: list model shopaikey khả dụng (gated bằng secret)
+      if (path === "/models") {
+        if (!env.SHOPAIKEY_KEY) return json({ error: "no key" }, corsHeaders, 500);
+        var mr = await fetch("https://api.shopaikey.com/v1/models", { headers: { "Authorization": "Bearer " + env.SHOPAIKEY_KEY } });
+        var mt = await mr.text();
+        return new Response(mt, { status: mr.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       if (path === "/filter" && request.method === "POST") {
@@ -165,13 +173,94 @@ function isAllowedImageUrl(u) {
 }
 
 var SHOPAIKEY_CHAT_URL = "https://api.shopaikey.com/v1/chat/completions";
-var SHOPAIKEY_MODEL = "gemini-3.1-flash-lite-image";
+var SHOPAIKEY_MODEL = "gemini-2.5-flash-image";
 
 function extractB64FromContent(content) {
   if (typeof content !== "string") return "";
   // dạng ![image](data:image/...;base64,XXXX)
   var m = content.match(/data:image\/[a-z]+;base64,([A-Za-z0-9+/=]+)/i);
   return m ? m[1] : "";
+}
+
+// Móc ảnh ra khỏi MỌI format shopaikey/OpenAI hay trả:
+//  - data[].b64_json | data[].url            (OpenAI images)
+//  - message.images[]: string | {url} | {image_url:{url}} | {b64_json}
+//  - message.content: string markdown | array parts
+// Trả { b64 } hoặc { url }, null nếu không thấy.
+function extractImageFromResponse(rd) {
+  function fromStr(s) {
+    if (typeof s !== "string") return null;
+    var m = s.match(/data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/=]+)/i);
+    if (m) return { b64: m[1] };
+    if (/^https?:\/\//i.test(s.trim())) return { url: s.trim() };
+    return null;
+  }
+  if (!rd || typeof rd !== "object") return null;
+
+  if (Array.isArray(rd.data)) {
+    for (var d = 0; d < rd.data.length; d++) {
+      var it = rd.data[d];
+      if (!it) continue;
+      if (it.b64_json) return { b64: it.b64_json };
+      if (typeof it.url === "string") { var ru = fromStr(it.url); if (ru) return ru; }
+    }
+  }
+
+  var msg = rd.choices && rd.choices[0] && rd.choices[0].message ? rd.choices[0].message : null;
+  if (msg) {
+    if (Array.isArray(msg.images)) {
+      for (var i = 0; i < msg.images.length; i++) {
+        var im = msg.images[i];
+        if (!im) continue;
+        if (typeof im === "string") { var r1 = fromStr(im); if (r1) return r1; }
+        else {
+          if (im.b64_json) return { b64: im.b64_json };
+          if (typeof im.url === "string") { var r2 = fromStr(im.url); if (r2) return r2; }
+          if (im.image_url && typeof im.image_url.url === "string") { var r3 = fromStr(im.image_url.url); if (r3) return r3; }
+        }
+      }
+    }
+    if (typeof msg.content === "string") { var r4 = fromStr(msg.content); if (r4) return r4; }
+    if (Array.isArray(msg.content)) {
+      for (var c = 0; c < msg.content.length; c++) {
+        var p = msg.content[c];
+        if (!p) continue;
+        if (typeof p === "string") { var r5 = fromStr(p); if (r5) return r5; }
+        else {
+          if (p.text) { var r6 = fromStr(p.text); if (r6) return r6; }
+          if (p.image_url && typeof p.image_url.url === "string") { var r7 = fromStr(p.image_url.url); if (r7) return r7; }
+          if (p.inlineData && p.inlineData.data) return { b64: p.inlineData.data };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Log debug vào KV (last_generate) — KHÔNG in cả ảnh b64 khổng lồ
+async function logGenerate(env, obj) {
+  if (!env.CAPTURE) return;
+  try { obj.at = Date.now(); await env.CAPTURE.put("last_generate", JSON.stringify(obj), { expirationTtl: 3600 }); } catch (e) {}
+}
+function shapeOf(rd) {
+  try {
+    var s = { top: Object.keys(rd) };
+    var m = rd.choices && rd.choices[0] && rd.choices[0].message;
+    if (m) {
+      s.msg = Object.keys(m);
+      if (Array.isArray(m.images)) s.images0 = (m.images[0] && typeof m.images[0] === "object") ? Object.keys(m.images[0]) : typeof m.images[0];
+    }
+    if (Array.isArray(rd.data)) s.data0 = rd.data[0] ? Object.keys(rd.data[0]) : "empty";
+    return s;
+  } catch (e) { return null; }
+}
+function safeSnippet(rd) {
+  try {
+    return JSON.stringify(rd, function (k, v) {
+      if (typeof v === "string" && v.length > 140) return v.slice(0, 140) + "…[" + v.length + "]";
+      return v;
+    }).slice(0, 2200);
+  } catch (e) { return ""; }
 }
 
 async function handleEdit(request, env, url, corsHeaders) {
@@ -210,7 +299,7 @@ async function generateAndHost(env, url, imageUrl, prompt) {
       method: "POST",
       headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: SHOPAIKEY_MODEL,
+        model: (env.SHOPAIKEY_MODEL || SHOPAIKEY_MODEL),
         messages: [{
           role: "user",
           content: [
@@ -222,16 +311,30 @@ async function generateAndHost(env, url, imageUrl, prompt) {
     });
   } catch (e) { return { ok: false, error: "provider_unavailable" }; }
 
-  if (!resp.ok) return { ok: false, error: "provider_rejected_request" };
+  if (!resp.ok) {
+    var errTxt = ""; try { errTxt = await resp.text(); } catch (e2) {}
+    await logGenerate(env, { stage: "provider_http", status: resp.status, body: errTxt.slice(0, 1500) });
+    return { ok: false, error: "provider_rejected_request" };
+  }
 
   var rd;
-  try { rd = await resp.json(); } catch (e) { return { ok: false, error: "invalid_provider_response" }; }
-  var msg = rd && rd.choices && rd.choices[0] && rd.choices[0].message ? rd.choices[0].message : null;
-  if (!msg) return { ok: false, error: "invalid_generated_image" };
+  try { rd = await resp.json(); } catch (e) {
+    await logGenerate(env, { stage: "non_json", status: resp.status });
+    return { ok: false, error: "invalid_provider_response" };
+  }
 
-  var outB64 = extractB64FromContent(msg.content);
-  if (!outB64 && msg.images && msg.images[0]) {
-    outB64 = extractB64FromContent(typeof msg.images[0] === "string" ? msg.images[0] : (msg.images[0].url || ""));
+  var pick = extractImageFromResponse(rd);
+  // LUÔN log cấu trúc response (snippet) để thấy ảnh nằm field nào
+  await logGenerate(env, { stage: pick ? "got_image" : "no_image_field", status: resp.status, shape: shapeOf(rd), snippet: safeSnippet(rd) });
+
+  if (!pick) return { ok: false, error: "invalid_generated_image" };
+
+  var outB64 = pick.b64 || "";
+  if (!outB64 && pick.url) {
+    try {
+      var ir = await fetch(pick.url);
+      if (ir.ok) outB64 = arrayBufferToBase64(await ir.arrayBuffer());
+    } catch (e3) {}
   }
   if (!outB64) return { ok: false, error: "invalid_generated_image" };
 
@@ -272,7 +375,7 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders) {
   var body = null;
   try { body = JSON.parse(raw); } catch (e) {}
   if (!body || typeof body !== "object") {
-    return json({ error: "unparsed_format", result: { status: 200 }, status: 200 }, corsHeaders, 200);
+    return json({ error: "unparsed_format" }, corsHeaders, 502);
   }
 
   var imageUrl = pickField(body, IMG_HOST_FIELDS);
@@ -281,12 +384,11 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders) {
   if (!prompt && filterId && FILTER_PROMPTS[filterId]) prompt = FILTER_PROMPTS[filterId];
 
   if (!imageUrl) {
-    // Chưa biết field ảnh — trả 200 để app không kẹt, raw đã lưu KV để em chỉnh.
-    return json({ error: "image_field_unknown", seenKeys: Object.keys(body).slice(0, 25), status: 200 }, corsHeaders, 200);
+    return json({ error: "image_field_unknown", seenKeys: Object.keys(body).slice(0, 25) }, corsHeaders, 502);
   }
 
   var r = await generateAndHost(env, url, imageUrl, prompt);
-  if (!r.ok) return json({ error: r.error, status: 200 }, corsHeaders, 200);
+  if (!r.ok) return json({ error: r.error }, corsHeaders, 502);
   return nativeFilterResponse(r.outputUrl, corsHeaders);
 }
 
