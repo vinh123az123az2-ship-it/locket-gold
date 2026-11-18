@@ -188,11 +188,14 @@ function extractB64FromContent(content) {
 //  - message.content: string markdown | array parts
 // Trả { b64 } hoặc { url }, null nếu không thấy.
 function extractImageFromResponse(rd) {
-  function fromStr(s) {
+  // allowUrl=true chỉ cho field ảnh CÓ CẤU TRÚC (data[].url, images[].url,
+  // image_url.url). Free-text content → chỉ nhận data:base64, KHÔNG nhận http
+  // URL (tránh SSRF: provider nhét link nội bộ vào text rồi Worker fetch).
+  function fromStr(s, allowUrl) {
     if (typeof s !== "string") return null;
     var m = s.match(/data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/=]+)/i);
     if (m) return { b64: m[1] };
-    if (/^https?:\/\//i.test(s.trim())) return { url: s.trim() };
+    if (allowUrl && /^https:\/\//i.test(s.trim())) return { url: s.trim() };
     return null;
   }
   if (!rd || typeof rd !== "object") return null;
@@ -202,7 +205,7 @@ function extractImageFromResponse(rd) {
       var it = rd.data[d];
       if (!it) continue;
       if (it.b64_json) return { b64: it.b64_json };
-      if (typeof it.url === "string") { var ru = fromStr(it.url); if (ru) return ru; }
+      if (typeof it.url === "string") { var ru = fromStr(it.url, true); if (ru) return ru; }
     }
   }
 
@@ -212,29 +215,50 @@ function extractImageFromResponse(rd) {
       for (var i = 0; i < msg.images.length; i++) {
         var im = msg.images[i];
         if (!im) continue;
-        if (typeof im === "string") { var r1 = fromStr(im); if (r1) return r1; }
+        if (typeof im === "string") { var r1 = fromStr(im, true); if (r1) return r1; }
         else {
           if (im.b64_json) return { b64: im.b64_json };
-          if (typeof im.url === "string") { var r2 = fromStr(im.url); if (r2) return r2; }
-          if (im.image_url && typeof im.image_url.url === "string") { var r3 = fromStr(im.image_url.url); if (r3) return r3; }
+          if (typeof im.url === "string") { var r2 = fromStr(im.url, true); if (r2) return r2; }
+          if (im.image_url && typeof im.image_url.url === "string") { var r3 = fromStr(im.image_url.url, true); if (r3) return r3; }
         }
       }
     }
-    if (typeof msg.content === "string") { var r4 = fromStr(msg.content); if (r4) return r4; }
+    if (typeof msg.content === "string") { var r4 = fromStr(msg.content, false); if (r4) return r4; }
     if (Array.isArray(msg.content)) {
       for (var c = 0; c < msg.content.length; c++) {
         var p = msg.content[c];
         if (!p) continue;
-        if (typeof p === "string") { var r5 = fromStr(p); if (r5) return r5; }
+        if (typeof p === "string") { var r5 = fromStr(p, false); if (r5) return r5; }
         else {
-          if (p.text) { var r6 = fromStr(p.text); if (r6) return r6; }
-          if (p.image_url && typeof p.image_url.url === "string") { var r7 = fromStr(p.image_url.url); if (r7) return r7; }
+          if (p.text) { var r6 = fromStr(p.text, false); if (r6) return r6; }
+          if (p.image_url && typeof p.image_url.url === "string") { var r7 = fromStr(p.image_url.url, true); if (r7) return r7; }
           if (p.inlineData && p.inlineData.data) return { b64: p.inlineData.data };
         }
       }
     }
   }
   return null;
+}
+
+// Tải ảnh output từ URL provider một cách an toàn: bắt buộc https, không theo
+// redirect, Content-Type phải image/*, chặn size theo MAX_IMAGE_BYTES. Trả b64
+// hoặc "" nếu không hợp lệ. (Chống SSRF + ảnh khổng lồ từ URL provider trả.)
+async function fetchImageB64(u) {
+  try {
+    var h = new URL(u);
+    if (h.protocol !== "https:") return "";
+  } catch (e) { return ""; }
+  var ir;
+  try { ir = await fetch(u, { redirect: "manual" }); } catch (e) { return ""; }
+  if (!ir.ok) return "";
+  var ct = ir.headers.get("content-type") || "";
+  if (!/^image\//i.test(ct)) return "";
+  var cl = parseInt(ir.headers.get("content-length") || "0", 10);
+  if (cl && cl > MAX_IMAGE_BYTES) return "";
+  var buf;
+  try { buf = await ir.arrayBuffer(); } catch (e) { return ""; }
+  if (buf.byteLength > MAX_IMAGE_BYTES) return "";
+  return arrayBufferToBase64(buf);
 }
 
 // Log debug vào KV (last_generate) — KHÔNG in cả ảnh b64 khổng lồ
@@ -331,10 +355,7 @@ async function generateAndHost(env, url, imageUrl, prompt) {
 
   var outB64 = pick.b64 || "";
   if (!outB64 && pick.url) {
-    try {
-      var ir = await fetch(pick.url);
-      if (ir.ok) outB64 = arrayBufferToBase64(await ir.arrayBuffer());
-    } catch (e3) {}
+    outB64 = await fetchImageB64(pick.url);
   }
   if (!outB64) return { ok: false, error: "invalid_generated_image" };
 
