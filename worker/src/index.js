@@ -427,6 +427,8 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) 
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
   var id = crypto.randomUUID().replace(/-/g, "");
+  // Marker pending để /img chỉ poll cho id thật (chống spam giữ Worker chạy)
+  try { await env.CAPTURE.put("pending:" + id, "1", { expirationTtl: 120 }); } catch (e) {}
   // Generate nền; nếu không có ctx (gọi thủ công) thì await luôn
   if (ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(generateToId(env, id, imageUrl, prompt));
@@ -440,9 +442,12 @@ var IMG_POLL_MAX_MS = 45000;
 var IMG_POLL_INTERVAL_MS = 800;
 
 // Serve ảnh: chờ generate nền xong (poll KV tới IMG_POLL_MAX_MS).
+// Chỉ poll cho id hợp lệ + đang pending → chặn spam GET giữ Worker chạy.
 async function serveImage(request, env, path, corsHeaders) {
   if (!env.CAPTURE) return new Response("storage unavailable", { status: 500 });
   var id = path.replace("/img/", "").replace(/\.jpg$/, "");
+  if (!/^[0-9a-f]{32}$/.test(id)) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
+
   var deadline = Date.now() + IMG_POLL_MAX_MS;
   while (true) {
     var v = await env.CAPTURE.get("img:" + id);
@@ -456,6 +461,9 @@ async function serveImage(request, env, path, corsHeaders) {
         headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" }
       });
     }
+    // Chưa có ảnh: chỉ chờ nếu job thật sự đang pending; không thì 404 ngay.
+    var pending = await env.CAPTURE.get("pending:" + id);
+    if (!pending) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
     if (Date.now() > deadline) return new Response("timeout", { status: 504, headers: { ...corsHeaders } });
     await new Promise(function (res) { setTimeout(res, IMG_POLL_INTERVAL_MS); });
   }
