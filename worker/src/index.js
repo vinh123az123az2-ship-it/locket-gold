@@ -438,22 +438,15 @@ async function generateToId(env, id, imageUrl, prompt) {
 // casing nào (camel/snake) → trả phủ HẾT: payload có cả 2 casing, đặt trong
 // result + data + top-level. Swift Decodable bỏ qua key thừa nên an toàn.
 function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, corsHeaders) {
-  // Firebase Callable response CHUẨN: {result:{...}} snake_case SẠCH (1 casing).
-  // App dùng .convertFromSnakeCase → nếu nhét cả camelCase lẫn snake, 2 key convert
-  // trùng nhau (output_url→outputUrl đụng outputUrl có sẵn) → decode throw = invalidResponse.
-  // RE binary Locket 2.73 (Ghidra, offset 46713257): GenerateFilteredImagePayload field =
-  // {outputUrl, imageUrl, prompt, filterType} — camelCase, 'url' thường. KHÔNG có "output_url"
-  // / "filter_type" snake trong binary → decode KHÔNG convertFromSnakeCase → app đòi ĐÚNG key
-  // camelCase. Gửi snake (bản cũ) = app tìm outputUrl không thấy = nil = Decodable throw =
-  // "không thể áp dụng bộ lọc". camelCase khớp cả khi convert on (không có '_' nên giữ nguyên).
-  var payload = {
-    outputUrl: outputUrl,
-    imageUrl: inputImageUrl || outputUrl,
-    prompt: prompt || "",
-    filterType: filterType || "normal"
-  };
-  // Phủ result / data / top-level (Firebase callable đọc result); cùng casing nên không đụng key.
-  return json(Object.assign({ result: payload, data: payload }, payload), corsHeaders);
+  // ★★ RE Ghidra: binary có `JSONStreamResponse{message,result}` → generateFilteredImage dùng
+  // Firebase Callable STREAMING (httpsCallable.stream()), KHÔNG phải call() thường. App đợi
+  // SSE (text/event-stream): từng event `data: {json}\n\n`, event cuối mang {result:<payload>}.
+  // Trả JSON phẳng `{result:...}` → parser stream không đọc ra → throw = "không áp dụng được".
+  // Payload = GenerateFilteredImagePayload{outputUrl:URL} (field descriptor @39426476, 1 field).
+  var sse = "data: " + JSON.stringify({ result: { outputUrl: outputUrl } }) + "\n\n";
+  return new Response(sse, {
+    headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
+  });
 }
 
 async function doEdit(request, env, url, corsHeaders) {
