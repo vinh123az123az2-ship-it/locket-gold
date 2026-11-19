@@ -127,10 +127,8 @@ export default {
       // CAPTURE (tạm): log response THẬT của server (dùng để bắt khuôn body rival trả).
       // Không gate để script http-response gửi dễ; gỡ sau khi lấy xong.
       if (path === "/capture-resp" && request.method === "POST") {
-        var cs = request.headers.get("X-Worker-Secret") || "";
-        if (!env.WORKER_SECRET || !timingSafeEqual(cs, env.WORKER_SECRET)) {
-          return json({ error: "unauthorized" }, corsHeaders, 401);
-        }
+        // Endpoint TẠM để bắt khuôn body rival — KHÔNG gate (bản script cap1 cache không gửi
+        // secret). Chỉ sống ngắn, gỡ sau khi lấy xong. Low risk: chỉ ghi đè 1 key KV.
         var rb = ""; try { rb = await request.text(); } catch (e) {}
         if (env.CAPTURE) { try { await env.CAPTURE.put("resp_capture", JSON.stringify({ body: rb.slice(0, 8000), len: rb.length, at: new Date().toISOString() }), { expirationTtl: 3600 }); } catch (e) {} }
         return json({ ok: true }, corsHeaders);
@@ -156,6 +154,14 @@ export default {
         }
       }
 
+      // TEST tách decode vs download: /img/echo.jpg trả 1 JPEG thật + log hit.
+      // App tải cái này = decode ĐÃ THÔNG (lỗi nằm sau). Không tải = decode vẫn throw.
+      if (path === "/img/echo.jpg") {
+        if (env.CAPTURE) { try { await env.CAPTURE.put("img_echo_hit", new Date().toISOString(), { expirationTtl: 3600 }); } catch (e) {} }
+        var jpg = Uint8Array.from(atob(ECHO_JPEG_B64), function (c) { return c.charCodeAt(0); });
+        return new Response(jpg, { headers: Object.assign({ "Content-Type": "image/jpeg", "Cache-Control": "no-store" }, corsHeaders) });
+      }
+
       // Serve ảnh đã generate (host trên KV) — read-only, mở để app tải ảnh
       if (path.indexOf("/img/") === 0) {
         return await serveImage(request, env, path, corsHeaders);
@@ -170,6 +176,8 @@ export default {
   }
 };
 
+// 1x1 JPEG hợp lệ (dùng cho /img/echo.jpg test tách decode vs download)
+var ECHO_JPEG_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAQABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDPoooryD9FP//Z";
 var IMG_HOST_FIELDS = ["imageUrl", "image_url", "inputUrl", "input_url", "url", "downloadUrl", "download_url"];
 var PROMPT_FIELDS = ["prompt", "text_prompt", "instruction"];
 var FILTER_ID_FIELDS = ["filterId", "filter_id", "filter", "stickerId", "sticker_id", "sticker", "effectId", "effect_id", "styleId", "style_id", "type"];
@@ -433,14 +441,18 @@ function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, cors
   // Firebase Callable response CHUẨN: {result:{...}} snake_case SẠCH (1 casing).
   // App dùng .convertFromSnakeCase → nếu nhét cả camelCase lẫn snake, 2 key convert
   // trùng nhau (output_url→outputUrl đụng outputUrl có sẵn) → decode throw = invalidResponse.
+  // RE binary Locket 2.73 (Ghidra, offset 46713257): GenerateFilteredImagePayload field =
+  // {outputUrl, imageUrl, prompt, filterType} — camelCase, 'url' thường. KHÔNG có "output_url"
+  // / "filter_type" snake trong binary → decode KHÔNG convertFromSnakeCase → app đòi ĐÚNG key
+  // camelCase. Gửi snake (bản cũ) = app tìm outputUrl không thấy = nil = Decodable throw =
+  // "không thể áp dụng bộ lọc". camelCase khớp cả khi convert on (không có '_' nên giữ nguyên).
   var payload = {
-    output_url: outputUrl,
-    image_url: inputImageUrl || outputUrl,
+    outputUrl: outputUrl,
+    imageUrl: inputImageUrl || outputUrl,
     prompt: prompt || "",
-    filter_type: filterType || "normal"
+    filterType: filterType || "normal"
   };
-  // Phủ 3 chiến lược unwrap: client đọc result / data / top-level đều trúng.
-  // CÙNG 1 casing (snake) nên .convertFromSnakeCase không bị đụng key như bản cũ.
+  // Phủ result / data / top-level (Firebase callable đọc result); cùng casing nên không đụng key.
   return json(Object.assign({ result: payload, data: payload }, payload), corsHeaders);
 }
 
@@ -497,10 +509,10 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 502);
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
-  // ECHO TEST (env ECHO_TEST=1): output_url = ảnh input THẬT, không generate. Dùng để
-  // xác nhận riêng cơ chế 302+server-thật có qua được tầng decode không.
+  // ECHO TEST (env ECHO_TEST=1): outputUrl = /img/echo.jpg (JPEG thật trên workers.dev, có log
+  // khi app tải). Tách bạch: app tải echo.jpg => decode THÔNG; không tải => decode vẫn throw.
   if (env.ECHO_TEST) {
-    return nativeFilterResponse(imageUrl, imageUrl, prompt, filterType, corsHeaders);
+    return nativeFilterResponse(url.origin + "/img/echo.jpg", imageUrl, prompt, filterType, corsHeaders);
   }
 
   var id = crypto.randomUUID().replace(/-/g, "");
