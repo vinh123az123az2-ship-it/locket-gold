@@ -127,6 +127,10 @@ export default {
       // CAPTURE (tạm): log response THẬT của server (dùng để bắt khuôn body rival trả).
       // Không gate để script http-response gửi dễ; gỡ sau khi lấy xong.
       if (path === "/capture-resp" && request.method === "POST") {
+        var cs = request.headers.get("X-Worker-Secret") || "";
+        if (!env.WORKER_SECRET || !timingSafeEqual(cs, env.WORKER_SECRET)) {
+          return json({ error: "unauthorized" }, corsHeaders, 401);
+        }
         var rb = ""; try { rb = await request.text(); } catch (e) {}
         if (env.CAPTURE) { try { await env.CAPTURE.put("resp_capture", JSON.stringify({ body: rb.slice(0, 8000), len: rb.length, at: new Date().toISOString() }), { expirationTtl: 3600 }); } catch (e) {} }
         return json({ ok: true }, corsHeaders);

@@ -17,7 +17,7 @@ deleteHeader = type=http-request, pattern=^https:\/\/(api\.(revenuecat|rc-backup
 locket_rc = type=http-response, pattern=^https?:\/\/firebaseremoteconfig\.googleapis\.com\/v1\/projects\/[^\/]+\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_remote.js?v=20261119_v16, requires-body=true, max-size=-1, timeout=60
 
 # BẮT response generateFilteredImage (từ VPS rival) → log về Worker
-locket_capture = type=http-response, pattern=^https?:\/\/api\.locketcamera\.com\/.*generateFilteredImage, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_capture.js?v=20261119_cap1, requires-body=true, max-size=-1, timeout=30
+locket_capture = type=http-response, pattern=^https?:\/\/api\.locketcamera\.com\/.*generateFilteredImage, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_capture.js?v=20261119_cap2, requires-body=true, max-size=-1, timeout=30
 
 [MITM]
 hostname = %APPEND% api.revenuecat.com, api.rc-backup.com, firebaseremoteconfig.googleapis.com, api.locketcamera.com, cdn.locketcamera.com, *.locketcamera.com
