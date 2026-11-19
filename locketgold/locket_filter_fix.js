@@ -1,51 +1,56 @@
 /**
  * LOCKET GOLD VIP - AI FILTER (generateFilteredImage)
- * Tác giả: langtucamau
  *
  * Chiều http-request (requires-body=true).
  *
- * KHÔNG rewrite URL. Lý do: app Locket dồn nhiều request trên 1 socket TCP
- * (HTTP pipelining) nối tới server Locket. Khi rewrite URL sang domain khác
- * (workers.dev), Shadowrocket đẩy bytes vào đúng socket cũ đang nối server
- * Locket → server nhận Host lạ → đóng socket ("Socket closed by remote peer").
+ * CƠ CHẾ: trả 302 redirect → app TỰ FETCH tới Worker (GET, params trên query).
+ * Lý do bỏ kiểu $httpClient + $done({response}) (nhét response synthetic): rival
+ * NMT xác nhận cơ chế nhét response bằng script KHÔNG thỏa Firebase Callable client
+ * cho generateFilteredImage ("lỗi không thể áp dụng bộ lọc"), nên nó route app sang
+ * server thật (VPS) qua DNS. 302 cho app fetch Worker = response từ SERVER THẬT, đúng
+ * khung HTTP, mà không cần VPS. image_url/prompt nhét trên query nên dù URLSession đổi
+ * POST→GET khi follow 302 (rớt body) vẫn đủ dữ liệu.
  *
- * Cách đúng: script tự gọi Worker bằng $httpClient (kết nối riêng tới
- * Cloudflare, không đụng socket pipeline), nhận JSON {result:{outputUrl}},
- * rồi $done({response}) trả thẳng cho app. Request gốc KHÔNG đi tới Locket.
- *
- * Fallback: Worker lỗi/không ra ảnh (status != 200) → $done({}) để request
- * đi tiếp tới Locket thật (hành vi gốc), tránh nhét JSON lỗi vào app.
+ * Fallback: body lỗi/không parse được → $done({}) để request đi tiếp tới Locket thật.
  */
 
-var WORKER_URL = "https://locket-gold.locket-gold.workers.dev/generateFilteredImage";
+var WORKER_BASE = "https://locket-gold.locket-gold.workers.dev/generateFilteredImage";
 var WORKER_SECRET = "lkg_96793314198125c82ab8488a1739a219";
 
 (function () {
   if (typeof $request === "undefined") return $done({});
 
   var body = $request.body;
-  if (!body) return $done({}); // không có body → để đi tiếp tới Locket
+  if (!body) return $done({});
 
-  $httpClient.post({
-    url: WORKER_URL,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Worker-Secret": WORKER_SECRET
-    },
-    body: body,
-    timeout: 55
-  }, function (err, resp, data) {
-    if (!err && resp && resp.status === 200 && data) {
-      return $done({
-        response: {
-          status: 200,
-          // khớp Content-Type server Locket thật (Firebase Callable): charset=utf-8
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: data
-        }
-      });
+  var data;
+  try {
+    var obj = JSON.parse(body);
+    data = (obj && obj.data) ? obj.data : obj;
+  } catch (e) {
+    return $done({}); // không parse được → để đi tiếp tới Locket
+  }
+  if (!data || typeof data !== "object") return $done({});
+
+  var imageUrl = data.image_url || data.imageUrl || data.url || "";
+  if (!imageUrl) return $done({});
+
+  var prompt = data.prompt || data.text_prompt || "";
+  var filterType = data.filter_type || data.filterType || "normal";
+  var filterId = data.filter_id || data.filterId || "";
+
+  var loc = WORKER_BASE +
+    "?s=" + encodeURIComponent(WORKER_SECRET) +
+    "&image_url=" + encodeURIComponent(imageUrl) +
+    "&prompt=" + encodeURIComponent(prompt) +
+    "&filter_type=" + encodeURIComponent(filterType) +
+    "&filter_id=" + encodeURIComponent(filterId);
+
+  return $done({
+    response: {
+      status: 302,
+      headers: { "Location": loc, "Content-Type": "text/plain; charset=utf-8" },
+      body: ""
     }
-    // Worker lỗi hoặc không ra ảnh → để request gốc đi tiếp tới Locket
-    return $done({});
   });
 })();

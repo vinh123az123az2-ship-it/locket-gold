@@ -63,7 +63,8 @@ export default {
 
     // Gate các route tốn tiền (gọi API trả phí): yêu cầu X-Worker-Secret khớp
     if (PAID_ROUTES[path]) {
-      var provided = request.headers.get("X-Worker-Secret") || "";
+      // App follow 302 bằng GET không gửi được custom header → chấp nhận secret trên query ?s=
+      var provided = request.headers.get("X-Worker-Secret") || url.searchParams.get("s") || "";
       if (!env.WORKER_SECRET || !timingSafeEqual(provided, env.WORKER_SECRET)) {
         return json({ error: "unauthorized" }, corsHeaders, 401);
       }
@@ -110,6 +111,10 @@ export default {
       // Request native Locket redirect vào đây (nguyên body gốc)
       if (path === "/generateFilteredImage" && request.method === "POST") {
         return await handleGenerateFilteredImage(request, env, url, corsHeaders, ctx);
+      }
+      // App follow 302 từ script → fetch GET thật vào đây (params trên query)
+      if (path === "/generateFilteredImage" && request.method === "GET") {
+        return await handleGenerateFilteredImageGet(request, env, url, corsHeaders, ctx);
       }
 
       // Serve ảnh đã generate (host trên KV) — read-only, mở để app tải ảnh
@@ -386,15 +391,17 @@ async function generateToId(env, id, imageUrl, prompt) {
 // casing nào (camel/snake) → trả phủ HẾT: payload có cả 2 casing, đặt trong
 // result + data + top-level. Swift Decodable bỏ qua key thừa nên an toàn.
 function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, corsHeaders) {
-  var img = inputImageUrl || outputUrl;
-  var pt = filterType || "normal";
-  var p = prompt || "";
+  // Firebase Callable response CHUẨN: {result:{...}} snake_case SẠCH (1 casing).
+  // App dùng .convertFromSnakeCase → nếu nhét cả camelCase lẫn snake, 2 key convert
+  // trùng nhau (output_url→outputUrl đụng outputUrl có sẵn) → decode throw = invalidResponse.
   var payload = {
-    outputUrl: outputUrl, output_url: outputUrl,
-    imageUrl: img, image_url: img,
-    prompt: p,
-    filterType: pt, filter_type: pt
+    output_url: outputUrl,
+    image_url: inputImageUrl || outputUrl,
+    prompt: prompt || "",
+    filter_type: filterType || "normal"
   };
+  // Phủ 3 chiến lược unwrap: client đọc result / data / top-level đều trúng.
+  // CÙNG 1 casing (snake) nên .convertFromSnakeCase không bị đụng key như bản cũ.
   return json(Object.assign({ result: payload, data: payload }, payload), corsHeaders);
 }
 
@@ -412,40 +419,66 @@ async function doEdit(request, env, url, corsHeaders) {
 // Native generateFilteredImage: generate AI mất ~15-18s, vượt timeout của app.
 // Nên trả outputUrl NGAY (<1s), generate ở nền (ctx.waitUntil), lưu img:<id>.
 // App tải /img/<id> — endpoint đó mới chờ ảnh (app kiên nhẫn với tải ảnh hơn API).
+// POST: app redirect nguyên body gốc vào đây (giữ cho curl/test trực tiếp).
 async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) {
   var raw = "";
   try { raw = await request.text(); } catch (e) {}
   if (env.CAPTURE) {
     try { await env.CAPTURE.put("raw_filter_req", JSON.stringify({ body: raw.slice(0, 4000), len: raw.length, at: Date.now() }), { expirationTtl: 3600 }); } catch (e) {}
   }
-
   var body = null;
   try { body = JSON.parse(raw); } catch (e) {}
   if (!body || typeof body !== "object") {
     return json({ error: "unparsed_format" }, corsHeaders, 502);
   }
-
   var imageUrl = pickField(body, IMG_HOST_FIELDS);
   var filterId = pickField(body, FILTER_ID_FIELDS);
   var prompt = pickField(body, PROMPT_FIELDS);
-  if (!prompt && filterId && FILTER_PROMPTS[filterId]) prompt = FILTER_PROMPTS[filterId];
+  var filterType = pickField(body, ["filterType", "filter_type"]) || "normal";
+  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType);
+}
 
-  if (!imageUrl) {
-    return json({ error: "image_field_unknown", seenKeys: Object.keys(body).slice(0, 25) }, corsHeaders, 502);
-  }
+// GET: script Shadowrocket trả 302 → app FETCH THẬT vào đây (params trên query).
+// Lý do bỏ $done-inject: rival NMT xác nhận cơ chế nhét response bằng script KHÔNG
+// thỏa Firebase Callable client cho generateFilteredImage → phải cho app nối server
+// thật. 302 cho app tự fetch Worker = response từ server thật, đúng khung HTTP.
+async function handleGenerateFilteredImageGet(request, env, url, corsHeaders, ctx) {
+  var q = url.searchParams;
+  var imageUrl = q.get("image_url") || q.get("imageUrl") || "";
+  var filterId = q.get("filter_id") || q.get("filterId") || "";
+  var prompt = q.get("prompt") || "";
+  var filterType = q.get("filter_type") || q.get("filterType") || "normal";
+  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType);
+}
+
+// Core dùng chung cho POST + GET.
+async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType) {
+  if (!prompt && filterId && FILTER_PROMPTS[filterId]) prompt = FILTER_PROMPTS[filterId];
+  filterType = filterType || "normal";
+  if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 502);
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
-  var filterType = pickField(body, ["filterType", "filter_type"]) || "normal";
-  var id = crypto.randomUUID().replace(/-/g, "");
-  var token = await signImgId(env, id);
-  if (!token) return json({ error: "img_signing_unavailable" }, corsHeaders, 500);
-  // Generate nền; nếu không có ctx (gọi thủ công) thì await luôn
-  if (ctx && typeof ctx.waitUntil === "function") {
-    ctx.waitUntil(generateToId(env, id, imageUrl, prompt));
-  } else {
-    await generateToId(env, id, imageUrl, prompt);
+  // ECHO TEST (env ECHO_TEST=1): output_url = ảnh input THẬT, không generate. Dùng để
+  // xác nhận riêng cơ chế 302+server-thật có qua được tầng decode không.
+  if (env.ECHO_TEST) {
+    return nativeFilterResponse(imageUrl, imageUrl, prompt, filterType, corsHeaders);
   }
-  return nativeFilterResponse(url.origin + "/img/" + id + token + ".jpg", imageUrl, prompt, filterType, corsHeaders);
+
+  var id = crypto.randomUUID().replace(/-/g, "");
+  var gen = await generateImageB64(env, imageUrl, prompt);
+  if (!gen.ok || !gen.b64) {
+    await logGenerate(env, { stage: "gen_fail", error: gen.error || "unknown", id: id });
+    return json({ error: gen.error || "generation_failed" }, corsHeaders, 502);
+  }
+  try {
+    await env.CAPTURE.put("img:" + id, gen.b64, { expirationTtl: 900 });
+  } catch (e) {
+    return json({ error: "storage_write_failed" }, corsHeaders, 502);
+  }
+  // output_url = /img THẬT trên workers.dev (tải được, app fetch URLSession bình thường).
+  // Echo test chứng minh domain workers.dev KHÔNG phải lý do reject.
+  var outUrl = url.origin + "/img/" + id + ".jpg";
+  return nativeFilterResponse(outUrl, imageUrl, prompt, filterType, corsHeaders);
 }
 
 var IMG_POLL_MAX_MS = 45000;
@@ -474,29 +507,41 @@ function timingSafeHex(a, b) {
 // Serve ảnh: verify token HMAC trước (id bịa → 404 ngay, không poll), rồi chờ
 // generate nền (poll KV tới IMG_POLL_MAX_MS). Token hợp lệ = id Worker thật phát,
 // nên poll full mà không cần pending marker (hết phụ thuộc KV read-after-write).
+async function logImg(env, obj) {
+  if (!env.CAPTURE) return;
+  try { obj.at = Date.now(); await env.CAPTURE.put("last_img", JSON.stringify(obj), { expirationTtl: 3600 }); } catch (e) {}
+}
 async function serveImage(request, env, path, corsHeaders) {
   if (!env.CAPTURE) return new Response("storage unavailable", { status: 500 });
   var raw = path.replace("/img/", "").replace(/\.jpg$/, "");
+  var ua = request.headers.get("user-agent") || "";
   var m = raw.match(/^([0-9a-f]{32})([0-9a-f]{24})$/);
-  if (!m) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
+  if (!m) { await logImg(env, { stage: "bad_path", raw: raw.slice(0, 80), ua: ua.slice(0, 60) }); return new Response("not found", { status: 404, headers: { ...corsHeaders } }); }
   var id = m[1], token = m[2];
   var expected = await signImgId(env, id);
-  if (!expected || !timingSafeHex(token, expected)) return new Response("not found", { status: 404, headers: { ...corsHeaders } });
+  if (!expected || !timingSafeHex(token, expected)) { await logImg(env, { stage: "bad_token", id: id, ua: ua.slice(0, 60) }); return new Response("not found", { status: 404, headers: { ...corsHeaders } }); }
 
   var deadline = Date.now() + IMG_POLL_MAX_MS;
   while (true) {
     var v = await env.CAPTURE.get("img:" + id);
     if (v) {
       if (v.indexOf("ERR:") === 0) {
+        await logImg(env, { stage: "served_err", id: id, err: v.slice(0, 40), ua: ua.slice(0, 60) });
         return new Response("generation failed", { status: 502, headers: { ...corsHeaders } });
       }
       var bytes = base64ToArrayBuffer(v);
+      // Content-Type đúng theo magic bytes (shopaikey hay trả PNG, app có thể kén)
+      var ct = "image/jpeg";
+      if (v.indexOf("iVBOR") === 0) ct = "image/png";
+      else if (v.indexOf("R0lGOD") === 0) ct = "image/gif";
+      else if (v.indexOf("UklGR") === 0) ct = "image/webp";
+      await logImg(env, { stage: "served_ok", id: id, bytes: bytes.byteLength, ct: ct, ua: ua.slice(0, 60) });
       return new Response(bytes, {
         status: 200,
-        headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" }
+        headers: { "Content-Type": ct, "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" }
       });
     }
-    if (Date.now() > deadline) return new Response("timeout", { status: 504, headers: { ...corsHeaders } });
+    if (Date.now() > deadline) { await logImg(env, { stage: "timeout", id: id, ua: ua.slice(0, 60) }); return new Response("timeout", { status: 504, headers: { ...corsHeaders } }); }
     await new Promise(function (res) { setTimeout(res, IMG_POLL_INTERVAL_MS); });
   }
 }

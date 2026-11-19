@@ -24,3 +24,5 @@ id = "28b76e3aaf764576bcc972add08a30d8"
 
 [vars]
 # R2_PUBLIC_URL = "https://your-r2-custom-domain.com"
+# ECHO_TEST: trả ảnh input làm output_url để tách bạch decode vs download. Tắt khi xong.
+ECHO_TEST = "1"
