@@ -51,6 +51,21 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // BEACON: log MỌI lần endpoint filter bị chạm (trước cả gate) để tao đọc KV biết
+    // request có THẬT SỰ tới Worker không (phân biệt lỗi mạng/QUIC vs lỗi response).
+    if (path === "/generateFilteredImage" && env.CAPTURE) {
+      try {
+        await env.CAPTURE.put("beacon_filter", JSON.stringify({
+          at: new Date().toISOString(),
+          method: request.method,
+          has_secret: !!(request.headers.get("X-Worker-Secret") || url.searchParams.get("s")),
+          has_image: !!(url.searchParams.get("image_url") || url.searchParams.get("imageUrl")),
+          ua: (request.headers.get("User-Agent") || "").slice(0, 60),
+          cf_h3: request.cf && request.cf.httpProtocol ? request.cf.httpProtocol : ""
+        }), { expirationTtl: 3600 });
+      } catch (e) {}
+    }
+
     const corsHeaders = {
       "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
