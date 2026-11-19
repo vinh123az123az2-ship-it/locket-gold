@@ -1,0 +1,24 @@
+#!name=LOCKET CAPTURE (TẠM) - lấy khuôn body rival
+#!desc=Giữ mở khóa Gold+filter UI, trỏ api.locketcamera.com -> VPS rival 163.223.9.98, log response generateFilteredImage. Import TẠM, bấm 1 filter, rồi gỡ quay lại module chính.
+#!author=langtucamau
+
+[Rule]
+AND,((PROTOCOL,UDP),(DEST-PORT,443)),REJECT
+
+[Host]
+firebaseremoteconfigrealtime.googleapis.com = 0.0.0.0
+# TẠM: trỏ Locket API sang VPS rival để bắt khuôn response filter đang-chạy
+api.locketcamera.com = 163.223.9.98
+
+[Script]
+# Giữ Gold + filter UI (để app hiện nút filter và chịu gửi generateFilteredImage)
+revenuecat = type=http-response, pattern=^https:\/\/api\.(revenuecat|rc-backup)\.com\/.+\/(receipts$|subscribers\/[^/]+$), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locketgold.js?v=20261119_v16, requires-body=true, max-size=-1, timeout=60
+deleteHeader = type=http-request, pattern=^https:\/\/(api\.(revenuecat|rc-backup)\.com\/.+\/(receipts|subscribers)|firebaseremoteconfig\.googleapis\.com\/v1\/.+), script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/deleteHeader.js?v=20261119_v16, timeout=60
+locket_rc = type=http-response, pattern=^https?:\/\/firebaseremoteconfig\.googleapis\.com\/v1\/projects\/[^\/]+\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_remote.js?v=20261119_v16, requires-body=true, max-size=-1, timeout=60
+
+# BẮT response generateFilteredImage (từ VPS rival) → log về Worker
+locket_capture = type=http-response, pattern=^https?:\/\/api\.locketcamera\.com\/.*generateFilteredImage, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_capture.js?v=20261119_cap1, requires-body=true, max-size=-1, timeout=30
+
+[MITM]
+hostname = %APPEND% api.revenuecat.com, api.rc-backup.com, firebaseremoteconfig.googleapis.com, api.locketcamera.com, cdn.locketcamera.com, *.locketcamera.com
+skip-server-cert-verify = true

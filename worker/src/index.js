@@ -60,6 +60,7 @@ export default {
           method: request.method,
           has_secret: !!(request.headers.get("X-Worker-Secret") || url.searchParams.get("s")),
           has_image: !!(url.searchParams.get("image_url") || url.searchParams.get("imageUrl")),
+          qs_keys: Array.from(url.searchParams.keys()).join(","),
           ua: (request.headers.get("User-Agent") || "").slice(0, 60),
           cf_h3: request.cf && request.cf.httpProtocol ? request.cf.httpProtocol : ""
         }), { expirationTtl: 3600 });
@@ -81,7 +82,9 @@ export default {
       // Query ?s= CHỈ chấp nhận cho GET /generateFilteredImage (app follow 302 không gửi
       // được custom header). Mọi route khác (/edit /filter /photobooth /models + POST
       // generateFilteredImage) vẫn header-only, không nới lỏng.
-      var allowQuerySecret = (path === "/generateFilteredImage" && request.method === "GET");
+      // App follow 302 có thể giữ method POST (URLSession preserve) → nhận ?s= cho MỌI
+      // method trên đúng route filter. Route khác vẫn header-only.
+      var allowQuerySecret = (path === "/generateFilteredImage");
       var provided = request.headers.get("X-Worker-Secret") || (allowQuerySecret ? (url.searchParams.get("s") || "") : "");
       if (!env.WORKER_SECRET || !timingSafeEqual(provided, env.WORKER_SECRET)) {
         return json({ error: "unauthorized" }, corsHeaders, 401);
@@ -121,18 +124,32 @@ export default {
         return json({ ok: true }, corsHeaders);
       }
 
+      // CAPTURE (tạm): log response THẬT của server (dùng để bắt khuôn body rival trả).
+      // Không gate để script http-response gửi dễ; gỡ sau khi lấy xong.
+      if (path === "/capture-resp" && request.method === "POST") {
+        var rb = ""; try { rb = await request.text(); } catch (e) {}
+        if (env.CAPTURE) { try { await env.CAPTURE.put("resp_capture", JSON.stringify({ body: rb.slice(0, 8000), len: rb.length, at: new Date().toISOString() }), { expirationTtl: 3600 }); } catch (e) {} }
+        return json({ ok: true }, corsHeaders);
+      }
+
       // Backend AI filter: nhận {imageUrl, prompt}, generate, host ảnh, trả outputUrl
       if (path === "/edit" && request.method === "POST") {
         return await handleEdit(request, env, url, corsHeaders);
       }
 
-      // Request native Locket redirect vào đây (nguyên body gốc)
-      if (path === "/generateFilteredImage" && request.method === "POST") {
-        return await handleGenerateFilteredImage(request, env, url, corsHeaders, ctx);
-      }
-      // App follow 302 từ script → fetch GET thật vào đây (params trên query)
-      if (path === "/generateFilteredImage" && request.method === "GET") {
-        return await handleGenerateFilteredImageGet(request, env, url, corsHeaders, ctx);
+      // generateFilteredImage: app có thể tới đây 3 kiểu →
+      //  - GET (302 follow chuẩn): params trên query
+      //  - POST giữ method khi follow 302: params trên query (body có thể rỗng)
+      //  - POST gốc chưa redirect / curl test: params trong body
+      // Hễ có image_url trên QUERY → xài query (bất kể GET/POST). Không thì đọc body.
+      if (path === "/generateFilteredImage") {
+        var qImg = url.searchParams.get("image_url") || url.searchParams.get("imageUrl");
+        if (qImg) {
+          return await handleGenerateFilteredImageGet(request, env, url, corsHeaders, ctx);
+        }
+        if (request.method === "POST") {
+          return await handleGenerateFilteredImage(request, env, url, corsHeaders, ctx);
+        }
       }
 
       // Serve ảnh đã generate (host trên KV) — read-only, mở để app tải ảnh
