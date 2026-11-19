@@ -7,6 +7,8 @@
 #!icon=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/assets/banner.png
 
 [Rule]
+# CHẶN SẠCH QUIC/HTTP3: UDP 443 (cú pháp DOMAIN+UDP không ăn trên luồng UDP thô → ép TCP)
+AND,((PROTOCOL,UDP),(DEST-PORT,443)),REJECT
 # Chặn QUIC/HTTP3 (UDP) để ép app dùng TCP → Shadowrocket MITM mới chặn được
 AND,((DOMAIN,firebaseremoteconfig.googleapis.com),(PROTOCOL,UDP)),REJECT
 AND,((DOMAIN,api.revenuecat.com),(PROTOCOL,UDP)),REJECT

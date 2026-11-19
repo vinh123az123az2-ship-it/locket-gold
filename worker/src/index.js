@@ -63,8 +63,11 @@ export default {
 
     // Gate các route tốn tiền (gọi API trả phí): yêu cầu X-Worker-Secret khớp
     if (PAID_ROUTES[path]) {
-      // App follow 302 bằng GET không gửi được custom header → chấp nhận secret trên query ?s=
-      var provided = request.headers.get("X-Worker-Secret") || url.searchParams.get("s") || "";
+      // Query ?s= CHỈ chấp nhận cho GET /generateFilteredImage (app follow 302 không gửi
+      // được custom header). Mọi route khác (/edit /filter /photobooth /models + POST
+      // generateFilteredImage) vẫn header-only, không nới lỏng.
+      var allowQuerySecret = (path === "/generateFilteredImage" && request.method === "GET");
+      var provided = request.headers.get("X-Worker-Secret") || (allowQuerySecret ? (url.searchParams.get("s") || "") : "");
       if (!env.WORKER_SECRET || !timingSafeEqual(provided, env.WORKER_SECRET)) {
         return json({ error: "unauthorized" }, corsHeaders, 401);
       }
