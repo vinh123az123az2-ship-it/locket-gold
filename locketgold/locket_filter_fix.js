@@ -39,7 +39,8 @@ var WORKER_SECRET = "lkg_96793314198125c82ab8488a1739a219";
       return $done({
         response: {
           status: 200,
-          headers: { "Content-Type": "application/json" },
+          // khớp Content-Type server Locket thật (Firebase Callable): charset=utf-8
+          headers: { "Content-Type": "application/json; charset=utf-8" },
           body: data
         }
       });
