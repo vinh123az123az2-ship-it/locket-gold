@@ -21,6 +21,11 @@ function injectBadge(target) {
     'profile' in target ||
     'data' in target ||
     'first_name' in target ||
+    'last_name' in target ||
+    'username' in target ||
+    'account' in target ||
+    'badges' in target ||
+    'badge' in target ||
     'phone_number' in target ||
     'uid' in target ||
     'id' in target
@@ -30,6 +35,20 @@ function injectBadge(target) {
     target.is_gold = true;
     target.show_badge = true;
     target.has_gold = true;
+    // Thêm các field plan/tier mà màn hình profile có thể đọc để vẽ huy hiệu
+    target.is_gold_user = true;
+    target.user_is_gold = true;
+    target.is_premium = true;
+    target.plan = 'gold';
+    target.tier = 'gold';
+    target.subscription_tier = 'gold';
+    target.subscription_status = 'active';
+    // Nếu app lưu huy hiệu dạng mảng badges → nhồi locket_gold vào
+    if (Array.isArray(target.badges)) {
+      if (!target.badges.includes('locket_gold')) target.badges.push('locket_gold');
+    } else if ('badges' in target) {
+      target.badges = ['locket_gold'];
+    }
     // Cấp quyền dùng AI filter (app check mấy cờ này trên user object)
     target.can_use_filters = true;
     target.can_use_gold_features = true;

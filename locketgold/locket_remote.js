@@ -2925,7 +2925,15 @@ remoteEntries['overlay_items'] = JSON.stringify(overlayItems);
 
 // Gán toàn bộ vào phản hồi trả về cho ứng dụng Locket
 Object.assign(obj.entries, remoteEntries);
+
+// ⛔ CHỐNG MẤT ICON SAU 1 NGÀY: ép app không cache config → mỗi lần fetch đều
+// lấy bản đã vá (không bao giờ xài lại bản free cũ trong cache).
+obj.entries['cache_ttl_seconds'] = "0";
+obj.entries['client_cache_ttl_sec'] = "0";
+obj.entries['minimum_fetch_interval_seconds'] = "0";
+
 obj['state'] = "UPDATE";
+obj['templateVersion'] = String(Date.now());
 obj['Attention'] = "Chúc mừng bạn! Bản quyền thuộc về langtucamau.";
 
 $done({ body: JSON.stringify(obj) });
