@@ -2962,4 +2962,22 @@ obj['state'] = "UPDATE";
 obj['templateVersion'] = String(Date.now());
 obj['Attention'] = "Chúc mừng bạn! Bản quyền thuộc về langtucamau.";
 
-$done({ body: JSON.stringify(obj) });
+// TẠM: beacon RC thật giao gì (gỡ sau khi debug xong thanh filter)
+try {
+  $httpClient.post({
+    url: "https://locket-gold.locket-gold.workers.dev/capture-resp",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({
+      tag: "RC_DELIVER",
+      url: (typeof $request !== "undefined" && $request && $request.url) ? $request.url : "",
+      entryCount: Object.keys(obj.entries || {}).length,
+      hasCFC: !!(obj.entries && obj.entries.camera_filter_config),
+      cfcLen: (obj.entries && obj.entries.camera_filter_config) ? obj.entries.camera_filter_config.length : 0,
+      hasCelebrity: !!(obj.entries && obj.entries.celebrity_filter_config),
+      hasVideoDur: !!(obj.entries && obj.entries.camera_roll_video_max_duration),
+      hasFileSize: !!(obj.entries && obj.entries.max_file_size),
+      state: obj.state,
+      keysSample: Object.keys(obj.entries || {}).filter(function (k) { return /filter|camera_roll|video/i.test(k); }).slice(0, 30)
+    })
+  }, function () { $done({ body: JSON.stringify(obj) }); });
+} catch (e) { $done({ body: JSON.stringify(obj) }); }
