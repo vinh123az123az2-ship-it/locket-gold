@@ -2946,15 +2946,22 @@ var __cfc = {
 };
 remoteEntries["camera_filter_config"] = JSON.stringify(__cfc);
 remoteEntries["cameraFilterConfig"] = remoteEntries["camera_filter_config"];
-// ★ CỜ GATING THẬT (phát hiện từ beacon RC_DELIVER): bật sheet/picker/selection + tắt paywall.
+// ★ NGUYÊN BỘ CỜ minhthoaine (gồm GEO US — filter có thể khóa theo vùng) + gold/paywall.
 ["camera_filters_enabled","camera_filter_enabled","camera_filter_sheet_enabled","camera_filter_picker_enabled",
- "filter_selection_enabled","camera_filter_sheet_selection_enabled","sheet_filters_selectable",
- "ai_filters_enabled","ai_filters_free","all_filters_free","free_filters_enabled","unlocked_filters",
- "holiday_filters_enabled","holiday_filters_free","allows_custom_filters","dismiss_filter_sheet_on_select"
+ "holiday_filters_enabled","ai_filters_enabled","ai_filters_free","holiday_filters_free",
+ "free_filters_enabled","filter_selection_enabled","camera_filter_sheet_selection_enabled","sheet_filters_selectable",
+ "dismiss_filter_sheet_on_select","allows_custom_filters","all_filters_free","unlocked_filters","is_us_user",
+ "is_gold","has_gold","is_gold_user","user_is_gold","gold_user","gold_active"
 ].forEach(function (k) { remoteEntries[k] = "true"; });
-["filter_paywall_enabled","camera_filter_paywall_enabled","filter_upsell_enabled",
- "require_gold_for_filters","require_gold_for_filter","requires_gold_for_filters"
+["camera_filter_gold_only","camera_filters_gold_only","holiday_filters_gold_only","filter_gold_only","filters_gold_only",
+ "ai_filter_gold_only","ai_filters_gold_only","filter_paywall_enabled","camera_filter_paywall_enabled","filter_upsell_enabled",
+ "require_gold_for_filters","require_gold_for_filter","requires_gold_for_filters","requires_gold_for_filter",
+ "requires_gold_for_camera_filters","camera_filter_requires_gold","camera_filters_require_gold","ai_filter_requires_gold",
+ "ai_filters_require_gold","filter_requires_gold","filters_require_gold","filtered_image_requires_gold",
+ "filtered_images_require_gold","filtered_image_gold_only","filtered_images_gold_only"
 ].forEach(function (k) { remoteEntries[k] = "false"; });
+remoteEntries["country_code"] = "US"; remoteEntries["region_code"] = "US";
+remoteEntries["camera_filter_max_count"] = "50"; remoteEntries["max_camera_filters"] = "50";
 remoteEntries["celebrity_filter_config"] = JSON.stringify({celebrityUid:"locket_admin_custom", cameraFilterConfig:__cfc});
 remoteEntries["cache_ttl_seconds"] = "0";
 remoteEntries["client_cache_ttl_sec"] = "0";
