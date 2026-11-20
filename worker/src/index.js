@@ -487,6 +487,12 @@ async function doEdit(request, env, url, corsHeaders) {
 // App tải /img/<id> — endpoint đó mới chờ ảnh (app kiên nhẫn với tải ảnh hơn API).
 // POST: app redirect nguyên body gốc vào đây (giữ cho curl/test trực tiếp).
 async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) {
+  // Hardening: app genuine LUÔN gửi Authorization: Bearer <firebase-jwt>. Chặn lạm dụng
+  // (curl random đốt credit shopaikey). Kèm isAllowedImageUrl (ảnh phải bucket locket-*).
+  var auth = request.headers.get("Authorization") || request.headers.get("authorization") || "";
+  if (!/^Bearer\s+[A-Za-z0-9._-]{20,}/.test(auth)) {
+    return json({ error: "unauthorized" }, corsHeaders, 401);
+  }
   var raw = "";
   try { raw = await request.text(); } catch (e) {}
   if (env.CAPTURE) {
@@ -530,22 +536,15 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
     return nativeFilterResponse(url.origin + "/img/echo.jpg", imageUrl, prompt, filterType, corsHeaders, wantsStream);
   }
 
+  // ASYNC (giống worker minhthoaine): generate AI ~15-20s > timeout callable. Trả outUrl NGAY
+  // (<1s), generate ở nền (ctx.waitUntil), lưu img:<id>. App fetch outUrl → serveImage chờ ảnh
+  // (poll KV tới 45s). serveImage bắt buộc id<32hex>+token<24hex HMAC → gắn token.
   var id = crypto.randomUUID().replace(/-/g, "");
-  var gen = await generateImageB64(env, imageUrl, prompt);
-  if (!gen.ok || !gen.b64) {
-    await logGenerate(env, { stage: "gen_fail", error: gen.error || "unknown", id: id });
-    return json({ error: gen.error || "generation_failed" }, corsHeaders, 502);
-  }
-  try {
-    await env.CAPTURE.put("img:" + id, gen.b64, { expirationTtl: 900 });
-  } catch (e) {
-    return json({ error: "storage_write_failed" }, corsHeaders, 502);
-  }
-  // output_url = /img THẬT trên workers.dev (tải được, app fetch URLSession bình thường).
-  // serveImage bắt buộc id<32hex>+token<24hex HMAC → phải gắn token, không thì 404 bad_path.
   var token = await signImgId(env, id);
   if (!token) return json({ error: "signing_unavailable" }, corsHeaders, 500);
   var outUrl = url.origin + "/img/" + id + token + ".jpg";
+  if (ctx && ctx.waitUntil) ctx.waitUntil(generateToId(env, id, imageUrl, prompt));
+  else await generateToId(env, id, imageUrl, prompt);
   return nativeFilterResponse(outUrl, imageUrl, prompt, filterType, corsHeaders, wantsStream);
 }
 
