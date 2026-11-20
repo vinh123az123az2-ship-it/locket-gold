@@ -526,10 +526,11 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 502);
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
-  // ECHO TEST (env ECHO_TEST=1): outputUrl = /img/echo.jpg (JPEG thật trên workers.dev, có log
-  // khi app tải). Tách bạch: app tải echo.jpg => decode THÔNG; không tải => decode vẫn throw.
+  // ECHO TEST: output_url = CHÍNH ảnh input (firebasestorage thật) để test giả thuyết app
+  // tải output bằng FirebaseStorage SDK (đòi URL firebasestorage, không nhận workers.dev).
+  // Nếu app HIỆN ảnh gốc làm "kết quả" => output phải firebasestorage-style, cần host ở đó.
   if (env.ECHO_TEST) {
-    return nativeFilterResponse(url.origin + "/img/echo.jpg", imageUrl, prompt, filterType, corsHeaders, wantsStream);
+    return nativeFilterResponse(imageUrl, imageUrl, prompt, filterType, corsHeaders, wantsStream);
   }
 
   var id = crypto.randomUUID().replace(/-/g, "");
