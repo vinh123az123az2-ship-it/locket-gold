@@ -453,9 +453,11 @@ function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, cors
       headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
     });
   }
-  // Genuine delivery (307): phủ cả data + result để thắng bất kể SDK đọc key nào. Payload
-  // GenerateFilteredImagePayload = {outputUrl}. Swift Decodable bỏ key thừa → an toàn.
-  var pl = { outputUrl: outputUrl };
+  // Genuine delivery (307): phủ cả data + result (envelope SDK). Payload key = SNAKE_CASE
+  // `output_url`: request thật dùng snake (image_url/filter_id/filter_type) → SDK bật
+  // convertFromSnakeCase → property Swift `outputUrl` map tới wire key `output_url`. Trả
+  // camel `outputUrl` → decoder không thấy → nil → throw. (RE đọc tên property, không phải wire key.)
+  var pl = { output_url: outputUrl };
   return new Response(JSON.stringify({ data: pl, result: pl }), {
     headers: Object.assign({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
   });
