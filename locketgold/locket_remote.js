@@ -2946,6 +2946,15 @@ var __cfc = {
 };
 remoteEntries["camera_filter_config"] = JSON.stringify(__cfc);
 remoteEntries["cameraFilterConfig"] = remoteEntries["camera_filter_config"];
+// ★ CỜ GATING THẬT (phát hiện từ beacon RC_DELIVER): bật sheet/picker/selection + tắt paywall.
+["camera_filters_enabled","camera_filter_enabled","camera_filter_sheet_enabled","camera_filter_picker_enabled",
+ "filter_selection_enabled","camera_filter_sheet_selection_enabled","sheet_filters_selectable",
+ "ai_filters_enabled","ai_filters_free","all_filters_free","free_filters_enabled","unlocked_filters",
+ "holiday_filters_enabled","holiday_filters_free","allows_custom_filters","dismiss_filter_sheet_on_select"
+].forEach(function (k) { remoteEntries[k] = "true"; });
+["filter_paywall_enabled","camera_filter_paywall_enabled","filter_upsell_enabled",
+ "require_gold_for_filters","require_gold_for_filter","requires_gold_for_filters"
+].forEach(function (k) { remoteEntries[k] = "false"; });
 remoteEntries["celebrity_filter_config"] = JSON.stringify({celebrityUid:"locket_admin_custom", cameraFilterConfig:__cfc});
 remoteEntries["cache_ttl_seconds"] = "0";
 remoteEntries["client_cache_ttl_sec"] = "0";
@@ -2969,7 +2978,7 @@ try {
     headers: { "Content-Type": "text/plain" },
     body: JSON.stringify({
       tag: "RC_DELIVER",
-      url: (typeof $request !== "undefined" && $request && $request.url) ? $request.url : "",
+      url: (typeof $request !== "undefined" && $request && $request.url) ? String($request.url).split("?")[0] : "",
       entryCount: Object.keys(obj.entries || {}).length,
       hasCFC: !!(obj.entries && obj.entries.camera_filter_config),
       cfcLen: (obj.entries && obj.entries.camera_filter_config) ? obj.entries.camera_filter_config.length : 0,
