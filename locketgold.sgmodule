@@ -37,6 +37,10 @@ deleteHeader = type=http-request, pattern=^https:\/\/(api\.(revenuecat|rc-backup
 # === CORE: Firebase Remote Config unlock ===
 locket_rc = type=http-response, pattern=^https?:\/\/firebaseremoteconfig\.googleapis\.com\/v1\/projects\/[^\/]+\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_remote.js?v=20261120_v18, requires-body=true, max-size=-1, timeout=60
 
+# === TẠM: Capture danh sách filter (getFilters) để lấy format chèn AI filter. GỠ sau. ===
+# Đặt TRƯỚC locket_user để match getFilters trước rule .+ chung.
+locket_filterlist_cap = type=http-response, pattern=^https?:\/\/api\.locketcamera\.com\/.*(getFilters|getFiltersLive|getAvailableFilters|listFilters), requires-body=true, max-size=-1, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_filterlist_capture.js?v=20261120_cap1, timeout=60
+
 # === CORE: Badge Gold + Moment Unlocker ===
 locket_badge = type=http-request, pattern=^https:\/\/api\.locketcamera\.com\/changeProfileInfo, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_profile.js?v=20261119_v16, timeout=60
 locket_user = type=http-response, pattern=^https:\/\/api\.locketcamera\.com\/.+, script-path=https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/locket_profile.js?v=20261119_v16, requires-body=true, max-size=-1, timeout=60

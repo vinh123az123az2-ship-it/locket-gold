@@ -135,7 +135,7 @@ export default {
         // Endpoint TẠM để bắt khuôn body rival — KHÔNG gate (bản script cap1 cache không gửi
         // secret). Chỉ sống ngắn, gỡ sau khi lấy xong. Low risk: chỉ ghi đè 1 key KV.
         var rb = ""; try { rb = await request.text(); } catch (e) {}
-        if (env.CAPTURE) { try { await env.CAPTURE.put("resp_capture", JSON.stringify({ body: rb.slice(0, 8000), len: rb.length, at: new Date().toISOString() }), { expirationTtl: 3600 }); } catch (e) {} }
+        if (env.CAPTURE) { try { await env.CAPTURE.put("resp_capture", rb.slice(0, 120000), { expirationTtl: 3600 }); } catch (e) {} }
         return json({ ok: true }, corsHeaders);
       }
 
