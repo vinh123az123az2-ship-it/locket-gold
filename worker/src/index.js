@@ -437,24 +437,20 @@ async function generateToId(env, id, imageUrl, prompt) {
   }
 }
 
-// GenerateFilteredImagePayload (RE binary Locket 2.73) = {outputUrl, imageUrl,
-// prompt, filterType}. Chưa chắc decoder dùng wrapper nào (result/data/none) hay
-// casing nào (camel/snake) → trả phủ HẾT: payload có cả 2 casing, đặt trong
-// result + data + top-level. Swift Decodable bỏ qua key thừa nên an toàn.
 // Payload = GenerateFilteredImagePayload{outputUrl:URL} (field descriptor @39426476, 1 field).
-// Envelope = Firebase Callable {result:<payload>}. KHÔNG đoán stream vs call nữa: thương lượng
-// theo Accept app gửi. `.stream()` → Accept: text/event-stream → SSE frame. `.call()` →
-// application/json phẳng. Binary có `JSONStreamResponse{message,result}` NÊN stream là khả năng
-// thật, nhưng chỉ app mới biết chắc nó xin kiểu nào → trả đúng cái nó Accept.
+// ★ ENVELOPE (RE ground truth 2026-11-20): binary có chuỗi lỗi FirebaseFunctions SDK:
+//   ".call()  → 'Response is missing data field.'            → đòi key DATA"
+//   ".stream()→ 'Response is missing result or message field'→ đòi result/message"
+// KHÔNG có 'missing result field' riêng → .call() dùng {"data":<payload>}, KHÔNG phải result.
+// App gửi accept */* = .call() → non-stream trả DATA. Stream (SSE) giữ result.
 function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, corsHeaders, wantsStream) {
-  var payload = { result: { outputUrl: outputUrl } };
   if (wantsStream) {
-    var sse = "data: " + JSON.stringify(payload) + "\n\n";
+    var sse = "data: " + JSON.stringify({ result: { outputUrl: outputUrl } }) + "\n\n";
     return new Response(sse, {
       headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
     });
   }
-  return new Response(JSON.stringify(payload), {
+  return new Response(JSON.stringify({ data: { outputUrl: outputUrl } }), {
     headers: Object.assign({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
   });
 }
