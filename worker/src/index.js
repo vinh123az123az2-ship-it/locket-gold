@@ -150,6 +150,11 @@ export default {
       //  - POST gốc chưa redirect / curl test: params trong body
       // Hễ có image_url trên QUERY → xài query (bất kể GET/POST). Không thì đọc body.
       if (path === "/generateFilteredImage") {
+        // Auth cho MỌI đường vào runFilter (GET + POST). App genuine luôn có Bearer firebase-jwt.
+        var gAuth = request.headers.get("Authorization") || request.headers.get("authorization") || "";
+        if (!/^Bearer\s+[A-Za-z0-9._-]{20,}/.test(gAuth)) {
+          return json({ error: "unauthorized" }, corsHeaders, 401);
+        }
         var qImg = url.searchParams.get("image_url") || url.searchParams.get("imageUrl");
         if (qImg) {
           return await handleGenerateFilteredImageGet(request, env, url, corsHeaders, ctx);
