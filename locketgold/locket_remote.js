@@ -2782,6 +2782,7 @@ const remoteEntries = {
   "camera_roll_video_upload_enabled": "true",
   "internal_camera_roll_video_upload_enabled": "true",
   "longer_camera_roll_videos_enabled": "true",
+  "longer_videos": "true",
   "camera_roll_video_max_duration": "60.0",
   "camera_roll_max_duration": "60.0",
   "camera_roll_duration": "60.0",

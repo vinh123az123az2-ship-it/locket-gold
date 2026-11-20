@@ -101,6 +101,7 @@ const entitlements = [
   "widget_frames",
   "camera_roll",
   "longer_video",
+  "longer_videos",
   "locket_views",
   "remove_ads",
   "streak_recovery",
