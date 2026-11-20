@@ -526,11 +526,15 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 502);
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
-  // ECHO TEST: output_url = CHÍNH ảnh input (firebasestorage thật) để test giả thuyết app
-  // tải output bằng FirebaseStorage SDK (đòi URL firebasestorage, không nhận workers.dev).
-  // Nếu app HIỆN ảnh gốc làm "kết quả" => output phải firebasestorage-style, cần host ở đó.
+  // ECHO TEST + FORCE SSE: test giả thuyết generateFilteredImage dùng .stream() (SSE), chờ
+  // Content-Type text/event-stream, event cuối `data: {"result":<payload>}`. output_url =
+  // ảnh input (firebasestorage, loại confound host). Qua 307 genuine nên đây là phép thử thật.
   if (env.ECHO_TEST) {
-    return nativeFilterResponse(imageUrl, imageUrl, prompt, filterType, corsHeaders, wantsStream);
+    var pl = { output_url: imageUrl, outputUrl: imageUrl, image_url: imageUrl, prompt: prompt || "", filter_type: filterType || "normal" };
+    var sse = "data: " + JSON.stringify({ result: pl }) + "\n\n";
+    return new Response(sse, {
+      headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
+    });
   }
 
   var id = crypto.randomUUID().replace(/-/g, "");
