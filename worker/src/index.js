@@ -365,7 +365,7 @@ async function handleEdit(request, env, url, corsHeaders) {
 var DEFAULT_PROMPT = "Enhance this photo with a subtle cinematic look. Keep faces, pose and background unchanged.";
 
 // Tải ảnh gốc → shopaikey generate → trả { ok, b64, error }. KHÔNG host.
-async function generateImageB64(env, imageUrl, prompt) {
+async function generateImageB64(env, imageUrl, prompt, modelOverride) {
   var apiKey = env.SHOPAIKEY_KEY;
   if (!apiKey) return { ok: false, error: "not_configured" };
   if (!isAllowedImageUrl(imageUrl)) return { ok: false, error: "unsafe_image_host" };
@@ -388,7 +388,7 @@ async function generateImageB64(env, imageUrl, prompt) {
       signal: ac.signal,
       headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: (env.SHOPAIKEY_MODEL || SHOPAIKEY_MODEL),
+        model: (modelOverride || env.SHOPAIKEY_MODEL || SHOPAIKEY_MODEL),
         messages: [{
           role: "user",
           content: [
@@ -435,18 +435,27 @@ async function generateAndHost(env, url, imageUrl, prompt) {
   return { ok: true, outputUrl: url.origin + "/img/" + id + token + ".jpg" };
 }
 
-// Dùng cho native filter (bất đồng bộ): generate nền, lưu img:<id> hoặc marker lỗi
+// shopaikey quá tải chập chờn (503 overloaded) + 2.5-flash đôi khi refuse → retry + xoay model.
+// Gen async có ngân sách ~45s (serveImage poll) → thử tối đa 4 lượt, mỗi lượt ~10-15s.
+var MODEL_ROTATION = ["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview", "gemini-2.5-flash-image"];
+
+// Dùng cho native filter (bất đồng bộ): generate nền (retry+rotate), lưu img:<id> hoặc marker lỗi
 async function generateToId(env, id, imageUrl, prompt) {
-  try {
-    var r = await generateImageB64(env, imageUrl, prompt);
-    if (r.ok && r.b64) {
-      await env.CAPTURE.put("img:" + id, r.b64, { expirationTtl: 900 });
-    } else {
-      await env.CAPTURE.put("img:" + id, "ERR:" + (r.error || "fail"), { expirationTtl: 300 });
-    }
-  } catch (e) {
-    try { await env.CAPTURE.put("img:" + id, "ERR:exception", { expirationTtl: 300 }); } catch (e2) {}
+  var models = [(env.SHOPAIKEY_MODEL || SHOPAIKEY_MODEL)].concat(MODEL_ROTATION);
+  var lastErr = "fail";
+  for (var i = 0; i < models.length && i < 4; i++) {
+    try {
+      var r = await generateImageB64(env, imageUrl, prompt, models[i]);
+      if (r.ok && r.b64) {
+        await env.CAPTURE.put("img:" + id, r.b64, { expirationTtl: 900 });
+        return;
+      }
+      lastErr = r.error || "fail";
+      // Lỗi KHÔNG đáng retry (ảnh/host sai) → dừng sớm.
+      if (lastErr === "unsafe_image_host" || lastErr === "image_download_failed" || lastErr === "not_configured" || lastErr === "request_too_large") break;
+    } catch (e) { lastErr = "exception"; }
   }
+  try { await env.CAPTURE.put("img:" + id, "ERR:" + lastErr, { expirationTtl: 300 }); } catch (e2) {}
 }
 
 // Payload = GenerateFilteredImagePayload{outputUrl:URL} (field descriptor @39426476, 1 field).
