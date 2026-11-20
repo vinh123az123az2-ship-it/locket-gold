@@ -106,6 +106,16 @@ export default {
         return json({ filters: Object.keys(FILTER_PROMPTS) }, corsHeaders);
       }
 
+      // getFilters: app tới qua 307 URL Rewrite (genuine callable). Trả 42 AI filter (có
+      // category → app tự nhóm trong thanh). Bearer-gate như generateFilteredImage.
+      if (path === "/getFilters") {
+        var gfAuth = request.headers.get("Authorization") || request.headers.get("authorization") || "";
+        if (!/^Bearer\s+[A-Za-z0-9._-]{20,}/.test(gfAuth)) {
+          return json({ error: "unauthorized" }, corsHeaders, 401);
+        }
+        return await handleGetFilters(env, corsHeaders);
+      }
+
       // Debug: list model shopaikey khả dụng (gated bằng secret)
       if (path === "/models") {
         if (!env.SHOPAIKEY_KEY) return json({ error: "no key" }, corsHeaders, 500);
@@ -456,6 +466,23 @@ async function generateToId(env, id, imageUrl, prompt) {
     } catch (e) { lastErr = "exception"; }
   }
   try { await env.CAPTURE.put("img:" + id, "ERR:" + lastErr, { expirationTtl: 300 }); } catch (e2) {}
+}
+
+// Danh sách AI filter cho thanh chọn (42 filter, host trên GitHub raw để sửa không cần redeploy).
+var AI_FILTERS_URL = "https://raw.githubusercontent.com/vinh123az123az2-ship-it/locket-gold/refs/heads/master/locketgold/ai_filters.json";
+
+// getFilters: trả danh sách filter theo đúng khung callable đã capture
+// {result:{data:{filters,friend_filters},status}} + mirror top-level (giống rival).
+async function handleGetFilters(env, corsHeaders) {
+  var filters = [];
+  try {
+    var r = await fetch(AI_FILTERS_URL, { cf: { cacheTtl: 300, cacheEverything: true } });
+    if (r.ok) { var arr = await r.json(); if (Array.isArray(arr)) filters = arr; }
+  } catch (e) {}
+  var data = { filters: filters, friend_filters: [] };
+  return new Response(JSON.stringify({ result: { data: data, status: 200 }, data: data, status: 200 }), {
+    headers: Object.assign({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
+  });
 }
 
 // Payload = GenerateFilteredImagePayload{outputUrl:URL} (field descriptor @39426476, 1 field).
