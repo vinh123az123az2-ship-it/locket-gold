@@ -62,6 +62,8 @@ export default {
           has_image: !!(url.searchParams.get("image_url") || url.searchParams.get("imageUrl")),
           qs_keys: Array.from(url.searchParams.keys()).join(","),
           ua: (request.headers.get("User-Agent") || "").slice(0, 60),
+          accept: (request.headers.get("Accept") || "").slice(0, 80),
+          ctype: (request.headers.get("Content-Type") || "").slice(0, 60),
           cf_h3: request.cf && request.cf.httpProtocol ? request.cf.httpProtocol : ""
         }), { expirationTtl: 3600 });
       } catch (e) {}
@@ -416,7 +418,9 @@ async function generateAndHost(env, url, imageUrl, prompt) {
   if (!env.CAPTURE) return { ok: false, error: "storage_unavailable" };
   var id = crypto.randomUUID().replace(/-/g, "");
   await env.CAPTURE.put("img:" + id, r.b64, { expirationTtl: 900 });
-  return { ok: true, outputUrl: url.origin + "/img/" + id + ".jpg" };
+  var token = await signImgId(env, id);
+  if (!token) return { ok: false, error: "signing_unavailable" };
+  return { ok: true, outputUrl: url.origin + "/img/" + id + token + ".jpg" };
 }
 
 // Dùng cho native filter (bất đồng bộ): generate nền, lưu img:<id> hoặc marker lỗi
@@ -437,16 +441,27 @@ async function generateToId(env, id, imageUrl, prompt) {
 // prompt, filterType}. Chưa chắc decoder dùng wrapper nào (result/data/none) hay
 // casing nào (camel/snake) → trả phủ HẾT: payload có cả 2 casing, đặt trong
 // result + data + top-level. Swift Decodable bỏ qua key thừa nên an toàn.
-function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, corsHeaders) {
-  // ★★ RE Ghidra: binary có `JSONStreamResponse{message,result}` → generateFilteredImage dùng
-  // Firebase Callable STREAMING (httpsCallable.stream()), KHÔNG phải call() thường. App đợi
-  // SSE (text/event-stream): từng event `data: {json}\n\n`, event cuối mang {result:<payload>}.
-  // Trả JSON phẳng `{result:...}` → parser stream không đọc ra → throw = "không áp dụng được".
-  // Payload = GenerateFilteredImagePayload{outputUrl:URL} (field descriptor @39426476, 1 field).
-  var sse = "data: " + JSON.stringify({ result: { outputUrl: outputUrl } }) + "\n\n";
-  return new Response(sse, {
-    headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
+// Payload = GenerateFilteredImagePayload{outputUrl:URL} (field descriptor @39426476, 1 field).
+// Envelope = Firebase Callable {result:<payload>}. KHÔNG đoán stream vs call nữa: thương lượng
+// theo Accept app gửi. `.stream()` → Accept: text/event-stream → SSE frame. `.call()` →
+// application/json phẳng. Binary có `JSONStreamResponse{message,result}` NÊN stream là khả năng
+// thật, nhưng chỉ app mới biết chắc nó xin kiểu nào → trả đúng cái nó Accept.
+function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, corsHeaders, wantsStream) {
+  var payload = { result: { outputUrl: outputUrl } };
+  if (wantsStream) {
+    var sse = "data: " + JSON.stringify(payload) + "\n\n";
+    return new Response(sse, {
+      headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
+    });
+  }
+  return new Response(JSON.stringify(payload), {
+    headers: Object.assign({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
   });
+}
+
+// App xin SSE? (Firebase .stream() đặt Accept: text/event-stream). Header giữ qua 302 của URLSession.
+function wantsStreamFrom(request) {
+  return /text\/event-stream/i.test(request.headers.get("Accept") || "");
 }
 
 async function doEdit(request, env, url, corsHeaders) {
@@ -457,7 +472,7 @@ async function doEdit(request, env, url, corsHeaders) {
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 400);
   var r = await generateAndHost(env, url, imageUrl, prompt);
   if (!r.ok) return json({ error: r.error }, corsHeaders, 502);
-  return nativeFilterResponse(r.outputUrl, imageUrl, prompt, "normal", corsHeaders);
+  return nativeFilterResponse(r.outputUrl, imageUrl, prompt, "normal", corsHeaders, wantsStreamFrom(request));
 }
 
 // Native generateFilteredImage: generate AI mất ~15-18s, vượt timeout của app.
@@ -479,7 +494,7 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) 
   var filterId = pickField(body, FILTER_ID_FIELDS);
   var prompt = pickField(body, PROMPT_FIELDS);
   var filterType = pickField(body, ["filterType", "filter_type"]) || "normal";
-  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType);
+  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStreamFrom(request));
 }
 
 // GET: script Shadowrocket trả 302 → app FETCH THẬT vào đây (params trên query).
@@ -492,11 +507,11 @@ async function handleGenerateFilteredImageGet(request, env, url, corsHeaders, ct
   var filterId = q.get("filter_id") || q.get("filterId") || "";
   var prompt = q.get("prompt") || "";
   var filterType = q.get("filter_type") || q.get("filterType") || "normal";
-  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType);
+  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStreamFrom(request));
 }
 
 // Core dùng chung cho POST + GET.
-async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType) {
+async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStream) {
   if (!prompt && filterId && FILTER_PROMPTS[filterId]) prompt = FILTER_PROMPTS[filterId];
   filterType = filterType || "normal";
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 502);
@@ -505,7 +520,7 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
   // ECHO TEST (env ECHO_TEST=1): outputUrl = /img/echo.jpg (JPEG thật trên workers.dev, có log
   // khi app tải). Tách bạch: app tải echo.jpg => decode THÔNG; không tải => decode vẫn throw.
   if (env.ECHO_TEST) {
-    return nativeFilterResponse(url.origin + "/img/echo.jpg", imageUrl, prompt, filterType, corsHeaders);
+    return nativeFilterResponse(url.origin + "/img/echo.jpg", imageUrl, prompt, filterType, corsHeaders, wantsStream);
   }
 
   var id = crypto.randomUUID().replace(/-/g, "");
@@ -520,9 +535,11 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
     return json({ error: "storage_write_failed" }, corsHeaders, 502);
   }
   // output_url = /img THẬT trên workers.dev (tải được, app fetch URLSession bình thường).
-  // Echo test chứng minh domain workers.dev KHÔNG phải lý do reject.
-  var outUrl = url.origin + "/img/" + id + ".jpg";
-  return nativeFilterResponse(outUrl, imageUrl, prompt, filterType, corsHeaders);
+  // serveImage bắt buộc id<32hex>+token<24hex HMAC → phải gắn token, không thì 404 bad_path.
+  var token = await signImgId(env, id);
+  if (!token) return json({ error: "signing_unavailable" }, corsHeaders, 500);
+  var outUrl = url.origin + "/img/" + id + token + ".jpg";
+  return nativeFilterResponse(outUrl, imageUrl, prompt, filterType, corsHeaders, wantsStream);
 }
 
 var IMG_POLL_MAX_MS = 45000;
