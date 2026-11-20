@@ -380,9 +380,12 @@ async function generateImageB64(env, imageUrl, prompt) {
   var dataUrl = "data:" + inMime + ";base64," + arrayBufferToBase64(inBuf);
 
   var resp;
+  var ac = new AbortController();
+  var to = setTimeout(function () { ac.abort(); }, 28000);
   try {
     resp = await fetch(SHOPAIKEY_CHAT_URL, {
       method: "POST",
+      signal: ac.signal,
       headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: (env.SHOPAIKEY_MODEL || SHOPAIKEY_MODEL),
@@ -395,7 +398,8 @@ async function generateImageB64(env, imageUrl, prompt) {
         }]
       })
     });
-  } catch (e) { return { ok: false, error: "provider_unavailable" }; }
+  } catch (e) { clearTimeout(to); return { ok: false, error: ac.signal.aborted ? "provider_timeout" : "provider_unavailable" }; }
+  clearTimeout(to);
 
   if (!resp.ok) {
     var errTxt = ""; try { errTxt = await resp.text(); } catch (e2) {}

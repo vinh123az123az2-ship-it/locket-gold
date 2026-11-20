@@ -25,3 +25,7 @@ id = "28b76e3aaf764576bcc972add08a30d8"
 [vars]
 # R2_PUBLIC_URL = "https://your-r2-custom-domain.com"
 # ECHO_TEST đã TẮT: filter chạy generate thật (shopaikey). Bật lại "1" nếu cần test cơ chế.
+# Model: gemini-2.5-flash-image = shopaikey CÓ channel, curl ra ảnh PNG 1024 thật (~14-16s).
+# gemini-3.1-flash-lite-image = 503 model_not_found (không có channel). gemini-3-pro-image-preview
+# có thể thử nếu cần đẹp hơn.
+SHOPAIKEY_MODEL = "gemini-2.5-flash-image"
