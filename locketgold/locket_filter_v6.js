@@ -1,10 +1,10 @@
 /**
  * LOCKET GOLD VIP - AI FILTER v6 ($done-direct, KHÔNG 302)
  *
- * Phép thử cô lập DELIVERY: beacon xác nhận app gửi callable .call() POST (accept */*,
- * ctype json), Worker trả JSON {"result":{"outputUrl"}} đúng khuôn RE, 200 — nhưng app
- * KHÔNG tải (img_echo_hit rỗng). SDWebImage không chặn host → decode/SDK vứt kết quả.
- * Biến còn lại = 302. FirebaseFunctions callable SDK không honor response bị redirect.
+ * Phep thu co lap DELIVERY: beacon xac nhan app gui callable .call() POST (accept any,
+ * ctype json), Worker tra JSON result.outputUrl dung khuon RE, 200 nhung app KHONG tai
+ * (img_echo_hit rong). SDWebImage khong chan host nen decode/SDK vut ket qua.
+ * Bien con lai = 302. FirebaseFunctions callable SDK khong honor response bi redirect.
  *
  * v6: trả response ĐÚNG THẲNG trên api.locketcamera.com (type=http-request $done),
  * KHÔNG nhảy workers.dev. outputUrl trỏ /img/echo.jpg (JPEG thật trên Worker, SDWebImage
