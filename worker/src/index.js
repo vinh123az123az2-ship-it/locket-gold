@@ -37,7 +37,10 @@ const GEMINI_EDIT_URL = "https://generativelanguage.googleapis.com/v1beta/models
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 // Route gọi API trả phí → bắt buộc X-Worker-Secret. /img/, /health, /filters mở (read-only)
-const PAID_ROUTES = { "/generateFilteredImage": 1, "/edit": 1, "/filter": 1, "/photobooth": 1, "/models": 1 };
+// /generateFilteredImage KHÔNG gate: app tới qua 307 URL Rewrite (genuine Firebase callable
+// POST), không mang X-Worker-Secret. Chống lạm dụng bằng isAllowedImageUrl (ảnh phải là
+// firebasestorage bucket locket-*). Các route khác vẫn gate.
+const PAID_ROUTES = { "/edit": 1, "/filter": 1, "/photobooth": 1, "/models": 1 };
 
 function timingSafeEqual(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
@@ -450,7 +453,10 @@ function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, cors
       headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
     });
   }
-  return new Response(JSON.stringify({ data: { outputUrl: outputUrl } }), {
+  // Genuine delivery (307): phủ cả data + result để thắng bất kể SDK đọc key nào. Payload
+  // GenerateFilteredImagePayload = {outputUrl}. Swift Decodable bỏ key thừa → an toàn.
+  var pl = { outputUrl: outputUrl };
+  return new Response(JSON.stringify({ data: pl, result: pl }), {
     headers: Object.assign({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
   });
 }
