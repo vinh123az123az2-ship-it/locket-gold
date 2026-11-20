@@ -453,17 +453,15 @@ function nativeFilterResponse(outputUrl, inputImageUrl, prompt, filterType, cors
       headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
     });
   }
-  // Genuine delivery (307): phủ cả data + result (envelope SDK). Payload 4-field SNAKE_CASE
-  // (RE gốc binary 2.73: output_url,image_url,prompt,filter_type đều required) + camel outputUrl
-  // phòng decoder không convertFromSnakeCase. 1-field đã fail → thử payload đầy đủ echo request.
-  var pl = {
-    output_url: outputUrl,
-    outputUrl: outputUrl,
-    image_url: inputImageUrl || "",
-    prompt: prompt || "",
-    filter_type: filterType || "normal"
+  // ★ CẤU TRÚC CHÍNH XÁC từ worker ĐANG CHẠY của minhthoaine (locket-vip.mhiep20077.workers.dev
+  // /generateFilteredImage trả 200 khuôn này). Envelope CHỈ {result}, url phủ 5 alias, status:200,
+  // và `data` LỒNG trong result. Copy y hệt — đây là khuôn app THẬT SỰ chấp nhận.
+  var al = {
+    outputUrl: outputUrl, output_url: outputUrl, url: outputUrl,
+    imageUrl: outputUrl, image_url: outputUrl, status: 200
   };
-  return new Response(JSON.stringify({ data: pl, result: pl }), {
+  var result = Object.assign({ quota_blocked: false, short_id: "LKG" }, al, { data: Object.assign({}, al) });
+  return new Response(JSON.stringify({ result: result }), {
     headers: Object.assign({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
   });
 }
@@ -526,15 +524,10 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 502);
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
-  // ECHO TEST + FORCE SSE: test giả thuyết generateFilteredImage dùng .stream() (SSE), chờ
-  // Content-Type text/event-stream, event cuối `data: {"result":<payload>}`. output_url =
-  // ảnh input (firebasestorage, loại confound host). Qua 307 genuine nên đây là phép thử thật.
+  // ECHO TEST: output = /img/echo.jpg (workers.dev — module minhthoaine CHỨNG MINH host này
+  // được chấp nhận). Dùng đúng cấu trúc response của worker ĐANG CHẠY đó (xem nativeFilterResponse).
   if (env.ECHO_TEST) {
-    var pl = { output_url: imageUrl, outputUrl: imageUrl, image_url: imageUrl, prompt: prompt || "", filter_type: filterType || "normal" };
-    var sse = "data: " + JSON.stringify({ result: pl }) + "\n\n";
-    return new Response(sse, {
-      headers: Object.assign({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" }, corsHeaders)
-    });
+    return nativeFilterResponse(url.origin + "/img/echo.jpg", imageUrl, prompt, filterType, corsHeaders, wantsStream);
   }
 
   var id = crypto.randomUUID().replace(/-/g, "");
