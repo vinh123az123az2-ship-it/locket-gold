@@ -524,7 +524,7 @@ async function handleGenerateFilteredImageGet(request, env, url, corsHeaders, ct
 // Core dùng chung cho POST + GET.
 async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStream, auth) {
   // PHOTOBOOTH: ghép lưới/khung qua Vercel (CPU ảnh), KHÔNG gen AI. Nhánh additive.
-  if (filterId && PHOTOBOOTH[filterId]) {
+  if (filterId && photoboothConfig(filterId)) {
     return handlePhotoboothFilter(env, url, corsHeaders, ctx, imageUrl, filterId, filterType, wantsStream, auth);
   }
   if (!prompt && filterId && FILTER_PROMPTS[filterId]) prompt = FILTER_PROMPTS[filterId];
@@ -555,6 +555,17 @@ var PHOTOBOOTH = {
 };
 var PB_SESSION_TTL_MS = 120000; // quá 2 phút kể từ shot cuối = session mới
 
+// Nhận diện filter photobooth theo id (khớp registry mới + id cũ minhthoaine theo pattern).
+// grid2x2 = 4cut/2x2/photobooth; frame1x1 = single. Trả null nếu không phải photobooth.
+function photoboothConfig(filterId) {
+  if (!filterId) return null;
+  if (PHOTOBOOTH[filterId]) return PHOTOBOOTH[filterId];
+  var id = String(filterId).toLowerCase();
+  if (/(pb_single|_single_|_single$|single_)/.test(id)) return { layout: "frame1x1", bg: "#ffffff", inset: 48, frame: null };
+  if (/(4cut|2x2|photobooth)/.test(id)) return { layout: "grid2x2", bg: "#ffffff", gap: 28, frame: null };
+  return null;
+}
+
 // Session key = SHA-256 của NGUYÊN Bearer token (không phải uid trong payload).
 // Lý do: uid lấy từ JWT chưa verify có thể bị giả → kẻ xấu chạm session người khác (IDOR,
 // lộ ảnh photobooth). Hash cả token → session gắn chặt người giữ token; không có token
@@ -571,7 +582,8 @@ async function sessionKeyFromAuth(auth) {
 }
 
 async function handlePhotoboothFilter(env, url, corsHeaders, ctx, imageUrl, filterId, filterType, wantsStream, auth) {
-  var cfg = PHOTOBOOTH[filterId];
+  var cfg = photoboothConfig(filterId);
+  if (!cfg) return json({ error: "not_photobooth" }, corsHeaders, 500);
   if (!imageUrl || !isAllowedImageUrl(imageUrl)) return json({ error: "image_missing" }, corsHeaders, 502);
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
