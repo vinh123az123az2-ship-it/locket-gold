@@ -572,7 +572,8 @@ function photoboothConfig(filterId) {
 // thật thì không target được session nạn nhân. (Verify JWKS đầy đủ = hardening tương lai.)
 async function sessionKeyFromAuth(auth) {
   var m = /Bearer\s+([A-Za-z0-9._-]+)/.exec(auth || "");
-  var tok = m ? m[1] : "anon";
+  if (!m) return null; // không token -> KHÔNG dùng session chung (tránh gộp ảnh chéo)
+  var tok = m[1];
   try {
     var h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(tok));
     var b = new Uint8Array(h), hex = "";
@@ -589,16 +590,22 @@ async function handlePhotoboothFilter(env, url, corsHeaders, ctx, imageUrl, filt
 
   var cells = [imageUrl];
   if (cfg.layout === "grid2x2") {
-    var skey = "pbsess:" + (await sessionKeyFromAuth(auth)) + ":" + filterId;
-    var prev = await env.CAPTURE.get(skey);
-    var acc = [];
-    if (prev) {
-      try { var o = JSON.parse(prev); if (o && Array.isArray(o.cells) && (Date.now() - o.ts) < PB_SESSION_TTL_MS && o.cells.length < 4) acc = o.cells; } catch (e) {}
+    var skh = await sessionKeyFromAuth(auth);
+    if (skh) {
+      // filterId sanitize (chống lạm dụng KV key); không token -> không gộp session (bỏ qua nhánh này).
+      var safeFilter = String(filterId).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 48);
+      var skey = "pbsess:" + skh + ":" + safeFilter;
+      var prev = await env.CAPTURE.get(skey);
+      var acc = [];
+      if (prev) {
+        try { var o = JSON.parse(prev); if (o && Array.isArray(o.cells) && (Date.now() - o.ts) < PB_SESSION_TTL_MS && o.cells.length < 4) acc = o.cells; } catch (e) {}
+      }
+      acc.push(imageUrl);
+      cells = acc.slice(0, 4);
+      if (cells.length >= 4) { try { await env.CAPTURE.delete(skey); } catch (e) {} }
+      else { try { await env.CAPTURE.put(skey, JSON.stringify({ cells: cells, ts: Date.now() }), { expirationTtl: 300 }); } catch (e) {} }
     }
-    acc.push(imageUrl);
-    cells = acc.slice(0, 4);
-    if (cells.length >= 4) { try { await env.CAPTURE.delete(skey); } catch (e) {} }
-    else { try { await env.CAPTURE.put(skey, JSON.stringify({ cells: cells, ts: Date.now() }), { expirationTtl: 300 }); } catch (e) {} }
+    // không token: cells giữ [imageUrl] — 1 ô, KHÔNG gộp vào bucket chung.
   }
 
   var spec = {
