@@ -2940,7 +2940,7 @@ var __cfc = {
   sheetEnabled:true, sheet_enabled:true, openSheetImmediately:false, open_sheet_immediately:false,
   pickerFilters:__fpick, picker_filters:__fpick,
   filterGroups:__fsheet, filter_groups:__fsheet, sheetFilters:__fsheet, sheet_filters:__fsheet,
-  remoteFilters:__fobjs, remote_filters:__fobjs, filters:__fobjs
+  remoteFilters:__fobjs, filters:__fobjs
 };
 remoteEntries["camera_filter_config"] = JSON.stringify(__cfc);
 remoteEntries["cameraFilterConfig"] = remoteEntries["camera_filter_config"];
@@ -2959,7 +2959,7 @@ remoteEntries["cameraFilterConfig"] = remoteEntries["camera_filter_config"];
  "filtered_images_require_gold","filtered_image_gold_only","filtered_images_gold_only"
 ].forEach(function (k) { remoteEntries[k] = "false"; });
 remoteEntries["country_code"] = "US"; remoteEntries["region_code"] = "US";
-remoteEntries["camera_filter_max_count"] = "50"; remoteEntries["max_camera_filters"] = "50";
+remoteEntries["camera_filter_max_count"] = "150"; remoteEntries["max_camera_filters"] = "150";
 remoteEntries["celebrity_filter_config"] = JSON.stringify({celebrityUid:"locket_admin_custom", cameraFilterConfig:__cfc});
 remoteEntries["cache_ttl_seconds"] = "0";
 remoteEntries["client_cache_ttl_sec"] = "0";
