@@ -54,24 +54,6 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // BEACON: log MỌI lần endpoint filter bị chạm (trước cả gate) để tao đọc KV biết
-    // request có THẬT SỰ tới Worker không (phân biệt lỗi mạng/QUIC vs lỗi response).
-    if (path === "/generateFilteredImage" && env.CAPTURE) {
-      try {
-        await env.CAPTURE.put("beacon_filter", JSON.stringify({
-          at: new Date().toISOString(),
-          method: request.method,
-          has_secret: !!(request.headers.get("X-Worker-Secret") || url.searchParams.get("s")),
-          has_image: !!(url.searchParams.get("image_url") || url.searchParams.get("imageUrl")),
-          qs_keys: Array.from(url.searchParams.keys()).join(","),
-          ua: (request.headers.get("User-Agent") || "").slice(0, 60),
-          accept: (request.headers.get("Accept") || "").slice(0, 80),
-          ctype: (request.headers.get("Content-Type") || "").slice(0, 60),
-          cf_h3: request.cf && request.cf.httpProtocol ? request.cf.httpProtocol : ""
-        }), { expirationTtl: 3600 });
-      } catch (e) {}
-    }
-
     const corsHeaders = {
       "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -132,23 +114,6 @@ export default {
         return await handlePhotobooth(request, env, url, corsHeaders);
       }
 
-      // Debug: lưu raw body request filter để xem format thật
-      if (path === "/capture" && request.method === "POST") {
-        var cb = ""; try { cb = await request.text(); } catch (e) {}
-        if (env.CAPTURE) { try { await env.CAPTURE.put("raw_filter_req", JSON.stringify({ body: cb.slice(0, 3000), at: Date.now() }), { expirationTtl: 3600 }); } catch (e) {} }
-        return json({ ok: true }, corsHeaders);
-      }
-
-      // CAPTURE (tạm): log response THẬT của server (dùng để bắt khuôn body rival trả).
-      // Không gate để script http-response gửi dễ; gỡ sau khi lấy xong.
-      if (path === "/capture-resp" && request.method === "POST") {
-        // Endpoint TẠM để bắt khuôn body rival — KHÔNG gate (bản script cap1 cache không gửi
-        // secret). Chỉ sống ngắn, gỡ sau khi lấy xong. Low risk: chỉ ghi đè 1 key KV.
-        var rb = ""; try { rb = await request.text(); } catch (e) {}
-        if (env.CAPTURE) { try { await env.CAPTURE.put("resp_capture", rb.slice(0, 120000), { expirationTtl: 3600 }); } catch (e) {} }
-        return json({ ok: true }, corsHeaders);
-      }
-
       // Backend AI filter: nhận {imageUrl, prompt}, generate, host ảnh, trả outputUrl
       if (path === "/edit" && request.method === "POST") {
         return await handleEdit(request, env, url, corsHeaders);
@@ -174,14 +139,6 @@ export default {
         }
       }
 
-      // TEST tách decode vs download: /img/echo.jpg trả 1 JPEG thật + log hit.
-      // App tải cái này = decode ĐÃ THÔNG (lỗi nằm sau). Không tải = decode vẫn throw.
-      if (path === "/img/echo.jpg") {
-        if (env.CAPTURE) { try { await env.CAPTURE.put("img_echo_hit", new Date().toISOString(), { expirationTtl: 3600 }); } catch (e) {} }
-        var jpg = Uint8Array.from(atob(ECHO_JPEG_B64), function (c) { return c.charCodeAt(0); });
-        return new Response(jpg, { headers: Object.assign({ "Content-Type": "image/jpeg", "Cache-Control": "no-store" }, corsHeaders) });
-      }
-
       // Serve ảnh đã generate (host trên KV) — read-only, mở để app tải ảnh
       if (path.indexOf("/img/") === 0) {
         return await serveImage(request, env, path, corsHeaders);
@@ -196,8 +153,6 @@ export default {
   }
 };
 
-// 1x1 JPEG hợp lệ (dùng cho /img/echo.jpg test tách decode vs download)
-var ECHO_JPEG_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAQABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDPoooryD9FP//Z";
 var IMG_HOST_FIELDS = ["imageUrl", "image_url", "inputUrl", "input_url", "url", "downloadUrl", "download_url"];
 var PROMPT_FIELDS = ["prompt", "text_prompt", "instruction"];
 var FILTER_ID_FIELDS = ["filterId", "filter_id", "filter", "stickerId", "sticker_id", "sticker", "effectId", "effect_id", "styleId", "style_id", "type"];
@@ -391,7 +346,7 @@ async function generateImageB64(env, imageUrl, prompt, modelOverride) {
 
   var resp;
   var ac = new AbortController();
-  var to = setTimeout(function () { ac.abort(); }, 28000);
+  var to = setTimeout(function () { ac.abort(); }, 150000);
   try {
     resp = await fetch(SHOPAIKEY_CHAT_URL, {
       method: "POST",
@@ -453,7 +408,7 @@ var MODEL_ROTATION = ["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview"
 async function generateToId(env, id, imageUrl, prompt) {
   var models = [(env.SHOPAIKEY_MODEL || SHOPAIKEY_MODEL)].concat(MODEL_ROTATION);
   var lastErr = "fail";
-  for (var i = 0; i < models.length && i < 4; i++) {
+  for (var i = 0; i < models.length && i < 2; i++) {
     try {
       var r = await generateImageB64(env, imageUrl, prompt, models[i]);
       if (r.ok && r.b64) {
@@ -540,9 +495,6 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) 
   }
   var raw = "";
   try { raw = await request.text(); } catch (e) {}
-  if (env.CAPTURE) {
-    try { await env.CAPTURE.put("raw_filter_req", JSON.stringify({ body: raw.slice(0, 4000), len: raw.length, at: Date.now() }), { expirationTtl: 3600 }); } catch (e) {}
-  }
   var body = null;
   try { body = JSON.parse(raw); } catch (e) {}
   if (!body || typeof body !== "object") {
@@ -575,12 +527,6 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 502);
   if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
 
-  // ECHO TEST: output = /img/echo.jpg (workers.dev — module minhthoaine CHỨNG MINH host này
-  // được chấp nhận). Dùng đúng cấu trúc response của worker ĐANG CHẠY đó (xem nativeFilterResponse).
-  if (env.ECHO_TEST) {
-    return nativeFilterResponse(url.origin + "/img/echo.jpg", imageUrl, prompt, filterType, corsHeaders, wantsStream);
-  }
-
   // ASYNC (giống worker minhthoaine): generate AI ~15-20s > timeout callable. Trả outUrl NGAY
   // (<1s), generate ở nền (ctx.waitUntil), lưu img:<id>. App fetch outUrl → serveImage chờ ảnh
   // (poll KV tới 45s). serveImage bắt buộc id<32hex>+token<24hex HMAC → gắn token.
@@ -593,15 +539,14 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
   return nativeFilterResponse(outUrl, imageUrl, prompt, filterType, corsHeaders, wantsStream);
 }
 
-var IMG_POLL_MAX_MS = 45000;
+var IMG_POLL_MAX_MS = 60000;
 var IMG_POLL_INTERVAL_MS = 800;
 
 // HMAC id để chống spam /img: chỉ id Worker tự phát (token khớp) mới được poll.
-// Dùng IMG_SIGNING_KEY (server-only, KHÔNG ship client). Fallback WORKER_SECRET
-// tạm thời — nhưng secret này nằm trong script public nên cần set IMG_SIGNING_KEY
-// riêng để token không forge được. Không có key nào → null (chặn).
+// Dùng IMG_SIGNING_KEY (server-only, KHÔNG ship client) → token không forge được.
+// KHÔNG fallback WORKER_SECRET (secret đó từng lộ trong script public). Không key → null (chặn).
 async function signImgId(env, id) {
-  var secret = env.IMG_SIGNING_KEY || env.WORKER_SECRET;
+  var secret = env.IMG_SIGNING_KEY;
   if (!secret) return null;
   var key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   var sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("img:" + id));
