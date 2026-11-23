@@ -504,7 +504,7 @@ async function handleGenerateFilteredImage(request, env, url, corsHeaders, ctx) 
   var filterId = pickField(body, FILTER_ID_FIELDS);
   var prompt = pickField(body, PROMPT_FIELDS);
   var filterType = pickField(body, ["filterType", "filter_type"]) || "normal";
-  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStreamFrom(request));
+  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStreamFrom(request), auth);
 }
 
 // GET: script Shadowrocket trả 302 → app FETCH THẬT vào đây (params trên query).
@@ -517,11 +517,16 @@ async function handleGenerateFilteredImageGet(request, env, url, corsHeaders, ct
   var filterId = q.get("filter_id") || q.get("filterId") || "";
   var prompt = q.get("prompt") || "";
   var filterType = q.get("filter_type") || q.get("filterType") || "normal";
-  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStreamFrom(request));
+  var auth = request.headers.get("Authorization") || request.headers.get("authorization") || "";
+  return runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStreamFrom(request), auth);
 }
 
 // Core dùng chung cho POST + GET.
-async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStream) {
+async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt, filterType, wantsStream, auth) {
+  // PHOTOBOOTH: ghép lưới/khung qua Vercel (CPU ảnh), KHÔNG gen AI. Nhánh additive.
+  if (filterId && PHOTOBOOTH[filterId]) {
+    return handlePhotoboothFilter(env, url, corsHeaders, ctx, imageUrl, filterId, filterType, wantsStream, auth);
+  }
   if (!prompt && filterId && FILTER_PROMPTS[filterId]) prompt = FILTER_PROMPTS[filterId];
   filterType = filterType || "normal";
   if (!imageUrl) return json({ error: "image_missing" }, corsHeaders, 502);
@@ -537,6 +542,85 @@ async function runFilter(env, url, corsHeaders, ctx, imageUrl, filterId, prompt,
   if (ctx && ctx.waitUntil) ctx.waitUntil(generateToId(env, id, imageUrl, prompt));
   else await generateToId(env, id, imageUrl, prompt);
   return nativeFilterResponse(outUrl, imageUrl, prompt, filterType, corsHeaders, wantsStream);
+}
+
+// ===== PHOTOBOOTH (ghép ảnh qua Vercel, không gen AI) =====
+// Registry: filterId -> cách ghép. grid2x2 = tích lũy 4 shot; frame1x1 = 1 shot + khung.
+var PHOTOBOOTH = {
+  "pb_grid_4cut":     { layout: "grid2x2", bg: "#ffffff", gap: 28, frame: null },
+  "pb_grid_pastel":   { layout: "grid2x2", bg: "#ffe4ef", gap: 32, frame: null },
+  "pb_grid_black":    { layout: "grid2x2", bg: "#111111", gap: 24, frame: null },
+  "pb_frame_classic": { layout: "frame1x1", bg: "#ffffff", inset: 48, frame: null },
+  "pb_frame_film":    { layout: "frame1x1", bg: "#111111", inset: 56, frame: null }
+};
+var PB_SESSION_TTL_MS = 120000; // quá 2 phút kể từ shot cuối = session mới
+
+// Session key = SHA-256 của NGUYÊN Bearer token (không phải uid trong payload).
+// Lý do: uid lấy từ JWT chưa verify có thể bị giả → kẻ xấu chạm session người khác (IDOR,
+// lộ ảnh photobooth). Hash cả token → session gắn chặt người giữ token; không có token
+// thật thì không target được session nạn nhân. (Verify JWKS đầy đủ = hardening tương lai.)
+async function sessionKeyFromAuth(auth) {
+  var m = /Bearer\s+([A-Za-z0-9._-]+)/.exec(auth || "");
+  var tok = m ? m[1] : "anon";
+  try {
+    var h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(tok));
+    var b = new Uint8Array(h), hex = "";
+    for (var i = 0; i < b.length; i++) hex += b[i].toString(16).padStart(2, "0");
+    return hex.slice(0, 32);
+  } catch (e) { return "anon"; }
+}
+
+async function handlePhotoboothFilter(env, url, corsHeaders, ctx, imageUrl, filterId, filterType, wantsStream, auth) {
+  var cfg = PHOTOBOOTH[filterId];
+  if (!imageUrl || !isAllowedImageUrl(imageUrl)) return json({ error: "image_missing" }, corsHeaders, 502);
+  if (!env.CAPTURE) return json({ error: "storage_unavailable" }, corsHeaders, 502);
+
+  var cells = [imageUrl];
+  if (cfg.layout === "grid2x2") {
+    var skey = "pbsess:" + (await sessionKeyFromAuth(auth)) + ":" + filterId;
+    var prev = await env.CAPTURE.get(skey);
+    var acc = [];
+    if (prev) {
+      try { var o = JSON.parse(prev); if (o && Array.isArray(o.cells) && (Date.now() - o.ts) < PB_SESSION_TTL_MS && o.cells.length < 4) acc = o.cells; } catch (e) {}
+    }
+    acc.push(imageUrl);
+    cells = acc.slice(0, 4);
+    if (cells.length >= 4) { try { await env.CAPTURE.delete(skey); } catch (e) {} }
+    else { try { await env.CAPTURE.put(skey, JSON.stringify({ cells: cells, ts: Date.now() }), { expirationTtl: 300 }); } catch (e) {} }
+  }
+
+  var spec = {
+    layout: cfg.layout, cells: cells, bg: cfg.bg,
+    gap: cfg.gap, inset: cfg.inset, frame: cfg.frame || undefined
+  };
+  var id = crypto.randomUUID().replace(/-/g, "");
+  var token = await signImgId(env, id);
+  if (!token) return json({ error: "signing_unavailable" }, corsHeaders, 500);
+  var outUrl = url.origin + "/img/" + id + token + ".jpg";
+  if (ctx && ctx.waitUntil) ctx.waitUntil(composeToId(env, id, spec));
+  else await composeToId(env, id, spec);
+  return nativeFilterResponse(outUrl, imageUrl, filterId, filterType, corsHeaders, wantsStream);
+}
+
+// Gọi Vercel /api/compose → nhận PNG → lưu img:<id> (serveImage phục vụ như ảnh gen).
+async function composeToId(env, id, spec) {
+  if (!env.COMPOSE_URL) { try { await env.CAPTURE.put("img:" + id, "ERR:no_compose_url", { expirationTtl: 300 }); } catch (e) {} return; }
+  var ac = new AbortController();
+  var to = setTimeout(function () { ac.abort(); }, 25000);
+  try {
+    var r = await fetch(env.COMPOSE_URL, {
+      method: "POST", signal: ac.signal,
+      headers: { "Content-Type": "application/json", "X-Compose-Secret": env.COMPOSE_SECRET || "" },
+      body: JSON.stringify(spec)
+    });
+    clearTimeout(to);
+    if (!r.ok) { try { await env.CAPTURE.put("img:" + id, "ERR:compose_" + r.status, { expirationTtl: 300 }); } catch (e) {} return; }
+    var buf = await r.arrayBuffer();
+    await env.CAPTURE.put("img:" + id, arrayBufferToBase64(buf), { expirationTtl: 900 });
+  } catch (e) {
+    clearTimeout(to);
+    try { await env.CAPTURE.put("img:" + id, "ERR:compose_exc", { expirationTtl: 300 }); } catch (e2) {}
+  }
 }
 
 var IMG_POLL_MAX_MS = 60000;
